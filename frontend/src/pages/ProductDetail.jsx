@@ -18,6 +18,7 @@ import {
   Star,
   Truck,
   UserCheck,
+  Flag,
 } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import MarketplaceLayout from '../components/layout/MarketplaceLayout'
@@ -29,6 +30,8 @@ import {
   getMarketplaceProductByIdApi,
   getMarketplaceProductsApi,
 } from '../services/marketplace-api'
+import { getProductReviewsApi } from '../services/review-api'
+import ReportModal from '../components/support/ReportModal'
 
 const sampleProducts = content.marketplace.products
 const formatPrice = (price) => `₹${Number(price || 0).toLocaleString('en-IN')}`
@@ -45,12 +48,26 @@ const ProductDetail = () => {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [imageUnavailable, setImageUnavailable] = useState(false)
   const [addedRecently, setAddedRecently] = useState(false)
+  const [verifiedReviews, setVerifiedReviews] = useState([])
+  const [reviewStats, setReviewStats] = useState(null)
+  const [reportModalOpen, setReportModalOpen] = useState(false)
 
   useEffect(() => {
     getMarketplaceProductByIdApi(slug)
       .then((res) => {
         if (res?.success && res.product) {
           setSingleProduct(res.product)
+          const pId = res.product.id || res.product._id
+          if (pId) {
+            getProductReviewsApi(pId)
+              .then((rRes) => {
+                if (rRes?.success) {
+                  setVerifiedReviews(rRes.reviews || [])
+                  setReviewStats(rRes.stats || null)
+                }
+              })
+              .catch(() => {})
+          }
         }
       })
       .catch(() => {})
@@ -322,17 +339,30 @@ const ProductDetail = () => {
                   {product.artisan ? product.artisan.charAt(0) : 'A'}
                 </div>
                 <div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <span className="text-sm font-bold text-text-main">
-                      {product.artisan || 'Master Artisan'}
+                      {product.artisan || 'SkillBridge Artisan'}
                     </span>
-                    <ShieldCheck className="h-4 w-4 text-secondary" />
+                    {product.isVerified || product.artisanDetails?.isVerified ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                        <span>Verified Artisan</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-text-muted border border-border">
+                        <span>Independent Maker</span>
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-text-muted">Certified Traditional Craftsperson</p>
+                  <p className="text-xs text-text-muted">
+                    {product.isVerified || product.artisanDetails?.isVerified
+                      ? 'SkillBridge Certified Master Craftsperson'
+                      : 'Independent Rural Craft Creator'}
+                  </p>
                 </div>
               </div>
               <Link
-                to="/find-artisans"
+                to="/artisans"
                 className="text-xs font-semibold text-primary hover:underline"
               >
                 View artisan profile →
@@ -513,9 +543,144 @@ const ProductDetail = () => {
                 <ShieldCheck className="h-3.5 w-3.5 text-success" />
                 <span>Encrypted checkout via Razorpay · Direct artisan wage escrow</span>
               </div>
+
+              {/* Report Listing Button */}
+              <div className="flex justify-center pt-2">
+                <button
+                  className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-error transition cursor-pointer"
+                  onClick={() => setReportModalOpen(true)}
+                  type="button"
+                >
+                  <Flag className="h-3.5 w-3.5" />
+                  <span>Report this craft listing</span>
+                </button>
+              </div>
             </div>
           </section>
         </div>
+
+        {/* Verified Customer Reviews Section */}
+        <section className="mt-12 border-t border-border/70 pt-10">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-secondary">
+                <ShieldCheck className="h-4 w-4" />
+                <span>Community Trust</span>
+              </div>
+              <h2 className="mt-1 font-serif text-2xl font-bold tracking-tight text-text-main sm:text-3xl">
+                Verified Patron Reviews
+              </h2>
+              <p className="mt-0.5 text-xs text-text-muted">
+                Only authenticated customers with confirmed deliveries can publish verified reviews.
+              </p>
+            </div>
+
+            {reviewStats && reviewStats.totalReviews > 0 && (
+              <div className="flex items-center gap-4 rounded-2xl border border-border/80 bg-surface p-4 shadow-xs">
+                <div className="text-center">
+                  <p className="font-serif text-3xl font-extrabold text-primary">
+                    {reviewStats.avgOverall.toFixed(1)}
+                  </p>
+                  <div className="flex items-center justify-center text-amber-400">
+                    <Star className="h-3.5 w-3.5 fill-amber-400" />
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-text-muted">{reviewStats.totalReviews} verified</p>
+                </div>
+
+                <div className="space-y-1 text-xs border-l border-border/60 pl-4">
+                  <div className="flex justify-between gap-3 text-[11px]">
+                    <span className="text-text-muted">Quality:</span>
+                    <strong className="text-text-main">{reviewStats.avgQuality.toFixed(1)}★</strong>
+                  </div>
+                  <div className="flex justify-between gap-3 text-[11px]">
+                    <span className="text-text-muted">Packaging:</span>
+                    <strong className="text-text-main">{reviewStats.avgPackaging.toFixed(1)}★</strong>
+                  </div>
+                  <div className="flex justify-between gap-3 text-[11px]">
+                    <span className="text-text-muted">Delivery:</span>
+                    <strong className="text-text-main">{reviewStats.avgDelivery.toFixed(1)}★</strong>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {verifiedReviews.length === 0 ? (
+            <div className="mt-6 rounded-3xl border border-dashed border-border-strong bg-surface/50 p-8 text-center">
+              <ShieldCheck className="mx-auto h-8 w-8 text-emerald-700/60" />
+              <p className="mt-2 text-sm font-bold text-text-main">No Customer Reviews Yet</p>
+              <p className="mx-auto mt-1 max-w-sm text-xs text-text-muted">
+                Be the first to order and review this authentic artisan craft once delivered.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {verifiedReviews.map((rev) => (
+                <div
+                  className="rounded-2xl border border-border/80 bg-surface p-5 shadow-xs flex flex-col justify-between"
+                  key={rev.id || rev._id}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            className={`h-3.5 w-3.5 ${
+                              s <= rev.overallRating ? 'fill-amber-400 text-amber-400' : 'text-gray-300'
+                            }`}
+                            key={s}
+                          />
+                        ))}
+                      </div>
+
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        <CheckCircle2 className="h-3 w-3" />
+                        <span>Verified Purchase</span>
+                      </span>
+                    </div>
+
+                    {rev.title && (
+                      <h4 className="mt-2.5 font-bold text-xs text-text-main">
+                        {rev.title}
+                      </h4>
+                    )}
+
+                    <p className="mt-1 text-xs text-text-secondary leading-relaxed">
+                      &quot;{rev.comment}&quot;
+                    </p>
+
+                    {rev.images && rev.images.length > 0 && (
+                      <div className="mt-3 flex gap-2 overflow-x-auto">
+                        {rev.images.map((img, i) => (
+                          <img
+                            alt="Customer proof"
+                            className="h-12 w-12 rounded-lg object-cover border border-border"
+                            key={i}
+                            src={img}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-border/50 flex items-center justify-between text-[11px] text-text-muted">
+                    <span className="font-semibold text-text-main">{rev.customerName}</span>
+                    <time>{new Date(rev.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</time>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Report Modal */}
+        <ReportModal
+          isOpen={reportModalOpen}
+          onClose={() => setReportModalOpen(false)}
+          targetId={product.id || product._id || product.slug}
+          targetTitle={product.name || product.title}
+          targetType="Product"
+        />
       </main>
     </MarketplaceLayout>
   )

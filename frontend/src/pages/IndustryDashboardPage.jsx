@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import {
   AlertCircle,
   Award,
@@ -13,9 +13,11 @@ import {
   CreditCard,
   Download,
   Info,
+  LifeBuoy,
   PackagePlus,
   Printer,
   Receipt,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Star,
@@ -33,6 +35,7 @@ import { loadRazorpayScript } from '../utils/razorpay'
 import { getRankedArtisanProductsApi } from '../services/marketplace-api'
 import IndustryLayout from '../components/layout/IndustryLayout'
 import { useAuthDialog } from '../hooks/useAuthDialog'
+import DisputeModal from '../components/support/DisputeModal'
 import { getArtisansApi } from '../services/auth-api'
 import { getAccountHomePath } from '../utils/account-routing'
 import {
@@ -90,6 +93,7 @@ const IndustryDashboardPage = () => {
   const [confirmPaymentOrder, setConfirmPaymentOrder] = useState(null)
   const [paymentReceiptModal, setPaymentReceiptModal] = useState(null)
   const [modalError, setModalError] = useState('')
+  const [disputeModalOrder, setDisputeModalOrder] = useState(null)
 
   // Smart Responsible Analysis State
   const [analysisData, setAnalysisData] = useState(null)
@@ -600,6 +604,14 @@ const IndustryDashboardPage = () => {
                     </span>
                   )}
                 </button>
+
+                <Link
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/20"
+                  to="/support"
+                >
+                  <LifeBuoy className="h-4 w-4 text-accent-light" />
+                  <span>Support & Mediation</span>
+                </Link>
 
                 <span className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3.5 py-2.5 text-sm font-medium text-white">
                   <Building2 aria-hidden="true" className="h-4 w-4" />
@@ -1363,9 +1375,19 @@ const IndustryDashboardPage = () => {
                             <Info className="h-4 w-4 text-secondary shrink-0" />
                             Payment of ₹{(order.total || 0).toLocaleString('en-IN')} will be unlocked as soon as {assignedArtisan.name || 'artisan'} marks this order as Completed.
                           </span>
-                          <span className="font-medium text-text-secondary">
-                            Current Stage: {order.status}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-text-secondary">
+                              Stage: {order.status}
+                            </span>
+                            <button
+                              className="inline-flex items-center gap-1 rounded-lg border border-border bg-white px-2.5 py-1 text-xs font-semibold text-text-secondary hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50/50 cursor-pointer"
+                              onClick={() => setDisputeModalOrder(order)}
+                              type="button"
+                            >
+                              <ShieldAlert className="h-3.5 w-3.5" />
+                              <span>Report Issue / Dispute</span>
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1645,6 +1667,18 @@ const IndustryDashboardPage = () => {
             </div>
           </div>
         )}
+
+        {/* Dispute Modal for Industry bulk orders */}
+        <DisputeModal
+          isOpen={Boolean(disputeModalOrder)}
+          item={disputeModalOrder?.items?.[0] || disputeModalOrder}
+          onClose={() => setDisputeModalOrder(null)}
+          onDisputeCreated={() => {
+            refreshBackendData()
+            alert('Industry claim submitted. Central mediation team will review your bulk order inquiry.')
+          }}
+          order={disputeModalOrder}
+        />
       </main>
     </IndustryLayout>
   )

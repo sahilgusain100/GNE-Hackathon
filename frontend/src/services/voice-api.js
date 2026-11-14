@@ -1,4 +1,4 @@
-import { apiRequest, setAuthToken } from './auth-api'
+import { API_BASE_URL, apiRequest, setAuthToken } from './auth-api'
 import { saveSessionUser } from '../utils/user-storage'
 
 /**
@@ -8,6 +8,31 @@ export async function getVoiceQuestionsApi(lang = 'pa') {
   return await apiRequest(`/voice/questions?lang=${encodeURIComponent(lang)}`, {
     method: 'GET',
   })
+}
+
+/**
+ * Fetch generated audio for a predefined registration question.
+ */
+export async function getVoiceQuestionAudioApi({ question_id, language = 'pa' }) {
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}/voice/question-audio`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question_id, language }),
+    })
+  } catch (error) {
+    console.error('Network error when requesting question audio:', error)
+    throw new Error('Unable to connect to the voice service.')
+  }
+
+  if (!response.ok) {
+    const result = await response.json().catch(() => null)
+    throw new Error(result?.message || `Question audio failed (${response.status}).`)
+  }
+
+  return response.blob()
 }
 
 /**

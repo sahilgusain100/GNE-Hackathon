@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  getVoiceQuestionAudioApi,
   getVoiceQuestionsApi,
   getVoiceSummaryApi,
   processVoiceAnswerApi,
@@ -39,6 +40,9 @@ export function useVoiceRegistration({ onRegistered } = {}) {
 
   const recognitionRef = useRef(null)
   const synthRef = useRef(typeof window !== 'undefined' ? window.speechSynthesis : null)
+  const audioRef = useRef(null)
+  const audioUrlRef = useRef('')
+  const speechGenerationRef = useRef(0)
   const isSpeakingRef = useRef(false)
   const isListeningRef = useRef(false)
   const answersRef = useRef(answers)
@@ -62,8 +66,18 @@ export function useVoiceRegistration({ onRegistered } = {}) {
 
   // Stop any ongoing speech or recognition
   const stopAllAudio = useCallback(() => {
+    speechGenerationRef.current += 1
     if (synthRef.current && synthRef.current.speaking) {
       synthRef.current.cancel()
+    }
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.src = ''
+      audioRef.current = null
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current)
+      audioUrlRef.current = ''
     }
     isSpeakingRef.current = false
     setIsMouthMoving(false)
@@ -80,11 +94,21 @@ export function useVoiceRegistration({ onRegistered } = {}) {
 
   // Text-to-Speech speaking function with mouth movement synchronization
   const speakText = useCallback(
-    (text, onComplete) => {
+    (text, onComplete, questionId = null) => {
       stopAllAudio()
-      if (!text || typeof window === 'undefined' || !window.speechSynthesis) {
+      if (!text || typeof window === 'undefined') {
         if (onComplete) onComplete()
         return
+      }
+
+      const speechGeneration = speechGenerationRef.current
+      let completed = false
+      const complete = () => {
+        if (completed || speechGeneration !== speechGenerationRef.current) return
+        completed = true
+        isSpeakingRef.current = false
+        setIsMouthMoving(false)
+        if (onComplete) onComplete()
       }
 
       setLastSpokenText(text)
@@ -92,63 +116,82 @@ export function useVoiceRegistration({ onRegistered } = {}) {
       setIsMouthMoving(true)
       isSpeakingRef.current = true
 
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.lang = LANGUAGE_LOCALES[languageRef.current] || 'pa-IN'
-      utterance.rate = 0.95 // Clear and friendly pace for rural users
-      utterance.pitch = 1.05
-
-      // Select regional voice if available
-      const voices = window.speechSynthesis.getVoices()
-      const langPrefix = languageRef.current === 'pa' ? 'pa' : languageRef.current === 'hi' ? 'hi' : 'en'
-      const matchedVoice = voices.find(
-        (v) =>
-          v.lang &&
-          (v.lang.toLowerCase().startsWith(langPrefix) ||
-            v.lang.toLowerCase().includes('in'))
-      )
-      if (matchedVoice) {
-        utterance.voice = matchedVoice
-      }
-
-      utterance.onstart = () => {
-        setIsMouthMoving(true)
-        setRobotState('speaking')
-      }
-
-      utterance.onboundary = () => {
-        // Toggle mouth movement frame
-        setIsMouthMoving((prev) => !prev)
-        setTimeout(() => setIsMouthMoving(true), 60)
-      }
-
-      utterance.onend = () => {
-        isSpeakingRef.current = false
-        setIsMouthMoving(false)
-        if (onComplete) {
-          onComplete()
+      const speakWithBrowser = () => {
+        if (speechGeneration !== speechGenerationRef.current) return
+        if (!window.speechSynthesis) {
+          complete()
+          return
         }
+
+        const utterance = new SpeechSynthesisUtterance(text)
+        const locale = LANGUAGE_LOCALES[languageRef.current] || 'pa-IN'
+        utterance.lang = locale
+        utterance.rate = 0.95
+        utterance.pitch = 1.05
+
+        const matchedVoice = window.speechSynthesis.getVoices().find(
+          (voice) => voice.lang?.toLowerCase() === locale.toLowerCase()
+        )
+        if (matchedVoice) utterance.voice = matchedVoice
+
+        utterance.onstart = () => {
+          setIsMouthMoving(true)
+          setRobotState('speaking')
+        }
+        utterance.onboundary = () => {
+          setIsMouthMoving((prev) => !prev)
+          setTimeout(() => setIsMouthMoving(true), 60)
+        }
+        utterance.onend = complete
+        utterance.onerror = complete
+
+        setTimeout(() => {
+          if (!completed && speechGeneration === speechGenerationRef.current) {
+            window.speechSynthesis.cancel()
+            complete()
+          }
+        }, Math.max(3000, text.length * 100) + 2000)
+
+        window.speechSynthesis.speak(utterance)
       }
 
-      utterance.onerror = () => {
-        isSpeakingRef.current = false
-        setIsMouthMoving(false)
-        if (onComplete) {
-          onComplete()
-        }
+      if (!questionId) {
+        speakWithBrowser()
+        return
       }
 
-      // Safety timeout in case speechSynthesis hangs (browser quirk)
-      const estimatedDuration = Math.max(3000, text.length * 100)
-      const timeoutId = setTimeout(() => {
-        if (isSpeakingRef.current) {
-          isSpeakingRef.current = false
-          setIsMouthMoving(false)
-          if (onComplete) onComplete()
-        }
-      }, estimatedDuration + 2000)
+      getVoiceQuestionAudioApi({
+        question_id: questionId,
+        language: languageRef.current,
+      })
+        .then((audioBlob) => {
+          if (speechGeneration !== speechGenerationRef.current) return
 
-      window.speechSynthesis.speak(utterance)
-      return () => clearTimeout(timeoutId)
+          const audioUrl = URL.createObjectURL(audioBlob)
+          const audio = new Audio(audioUrl)
+          audioUrlRef.current = audioUrl
+          audioRef.current = audio
+
+          const fallbackToBrowser = () => {
+            if (speechGeneration !== speechGenerationRef.current) return
+            audio.onerror = null
+            audio.pause()
+            audio.src = ''
+            audioRef.current = null
+            URL.revokeObjectURL(audioUrl)
+            audioUrlRef.current = ''
+            speakWithBrowser()
+          }
+
+          audio.onended = complete
+          audio.onerror = fallbackToBrowser
+          audio.play().catch(fallbackToBrowser)
+        })
+        .catch((error) => {
+          if (speechGeneration !== speechGenerationRef.current) return
+          console.warn('Gemini question speech unavailable; using browser speech:', error.message)
+          speakWithBrowser()
+        })
     },
     [stopAllAudio]
   )
@@ -482,7 +525,7 @@ export function useVoiceRegistration({ onRegistered } = {}) {
       speakText(spokenText, () => {
         // Automatically start listening after question is spoken
         startListening()
-      })
+      }, question.id)
     },
     [speakText, startListening]
   )

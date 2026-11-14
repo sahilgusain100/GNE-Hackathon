@@ -86,8 +86,14 @@ const ProductCard = ({ product, onAddToCart }) => {
           </Link>
         </h3>
 
-        <p className="mt-1 text-xs font-medium text-text-muted">
-          Crafted by <span className="font-semibold text-text-secondary">{product.artisan}</span>
+        <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+          <span>Crafted by <span className="font-semibold text-text-secondary">{product.artisan}</span></span>
+          {(product.isVerified || product.artisanDetails?.isVerified) && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.2 text-[9px] font-bold text-emerald-800 border border-emerald-200" title="Verified Artisan">
+              <Check className="h-2.5 w-2.5 text-emerald-600" />
+              <span>Verified</span>
+            </span>
+          )}
         </p>
 
         {Number.isFinite(product.stock) && (

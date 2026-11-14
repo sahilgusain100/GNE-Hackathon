@@ -27,11 +27,13 @@ import {
   Loader2,
   Upload,
   X,
+  LifeBuoy,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import ArtisanLayout from '../components/layout/ArtisanLayout'
 import ProfileImageControl from '../components/profile/ProfileImageControl'
 import ArtisanProductEvaluationsSection from '../components/profile/ArtisanProductEvaluationsSection'
+import SupportCentre from '../components/support/SupportCentre'
 import { useAuthDialog } from '../hooks/useAuthDialog'
 import { getAccountHomePath } from '../utils/account-routing'
 import {
@@ -57,6 +59,7 @@ const sections = [
   { id: 'orders', label: 'Orders', icon: ClipboardList },
   { id: 'profile', label: 'Profile Info', icon: UserRound },
   { id: 'payments', label: 'Payment History', icon: WalletCards },
+  { id: 'support', label: 'Support & Disputes', icon: LifeBuoy },
 ]
 
 const inputClass =
@@ -74,14 +77,14 @@ const ArtisanProfilePage = () => {
   const [searchParams] = useSearchParams()
   const initialTab = searchParams.get('tab')
   const [activeSection, setActiveSection] = useState(
-    initialTab && ['dashboard', 'evaluations', 'training', 'arts', 'orders', 'profile', 'payments'].includes(initialTab)
+    initialTab && ['dashboard', 'evaluations', 'training', 'arts', 'orders', 'profile', 'payments', 'support'].includes(initialTab)
       ? initialTab
       : 'dashboard'
   )
 
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'evaluations', 'training', 'arts', 'orders', 'profile', 'payments'].includes(tab)) {
+    if (tab && ['dashboard', 'evaluations', 'training', 'arts', 'orders', 'profile', 'payments', 'support'].includes(tab)) {
       setActiveSection(tab)
     }
   }, [searchParams])
@@ -1865,6 +1868,12 @@ const ArtisanProfilePage = () => {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeSection === 'support' && (
+            <div className="pt-2">
+              <SupportCentre />
             </div>
           )}
         </section>
