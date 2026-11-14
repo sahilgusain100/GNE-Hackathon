@@ -24,6 +24,8 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const FindArtisansPage = lazy(() => import('./pages/FindArtisansPage'))
 const StoryOfArtPage = lazy(() => import('./pages/StoryOfArtPage'))
 const AboutUsPage = lazy(() => import('./pages/AboutUsPage'))
+const SupportPage = lazy(() => import('./pages/SupportPage'))
+const AdminSupportPage = lazy(() => import('./pages/AdminSupportPage'))
 
 /**
  * Route guard that redirects logged-in users directly to their active role's dashboard.
@@ -101,6 +103,10 @@ const App = () => {
                 path="/marketplace/order-confirmation"
                 element={<OrderConfirmation />}
               />
+
+              {/* Support & Dispute Resolution Centre */}
+              <Route path="/support" element={<SupportPage />} />
+              <Route path="/admin/support" element={<AdminSupportPage />} />
 
               {/* 404 Catch-All */}
               <Route path="*" element={<NotFoundPage />} />

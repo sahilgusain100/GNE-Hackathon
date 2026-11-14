@@ -3,12 +3,16 @@ import {
   CheckCircle2,
   Clock,
   CreditCard,
+  LifeBuoy,
+  MessageSquare,
   Package,
   PackageCheck,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  Star,
   XCircle,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -22,6 +26,8 @@ import {
   reportPaymentFailureApi,
 } from '../../services/payment-api'
 import { loadRazorpayScript } from '../../utils/razorpay'
+import DisputeModal from '../support/DisputeModal'
+import VerifiedReviewModal from '../reviews/VerifiedReviewModal'
 
 const formatPrice = (price) => `₹${Number(price || 0).toLocaleString('en-IN')}`
 
@@ -50,6 +56,10 @@ const STATUS_BADGES = {
     bg: 'bg-red-50 text-red-700 border-red-200',
     dot: 'bg-red-500',
   },
+  Disputed: {
+    bg: 'bg-purple-50 text-purple-700 border-purple-200',
+    dot: 'bg-purple-500',
+  },
 }
 
 const OrderHistorySection = ({ user, compact = false }) => {
@@ -58,6 +68,8 @@ const OrderHistorySection = ({ user, compact = false }) => {
   const [loading, setLoading] = useState(true)
   const [cancellingId, setCancellingId] = useState(null)
   const [payingId, setPayingId] = useState(null)
+  const [disputeModalState, setDisputeModalState] = useState({ open: false, order: null, item: null })
+  const [reviewModalState, setReviewModalState] = useState({ open: false, order: null, item: null })
 
   const loadOrders = async () => {
     setLoading(true)
@@ -226,6 +238,26 @@ const OrderHistorySection = ({ user, compact = false }) => {
         </div>
       </div>
 
+      {/* Post-Delivery Protection & Return Policy Banner */}
+      <div className="mt-4 flex flex-col justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-50/70 p-4 text-xs text-emerald-950 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-2.5">
+          <ShieldCheck className="h-5 w-5 text-emerald-700 shrink-0" />
+          <div>
+            <p className="font-bold">Post-Delivery Protection & Return Window</p>
+            <p className="text-[11px] text-emerald-800">
+              7-day return guarantee & 14-day craft quality dispute resolution on all delivered orders.
+            </p>
+          </div>
+        </div>
+        <Link
+          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-100/90 px-3.5 py-1.5 text-xs font-bold text-emerald-900 transition hover:bg-emerald-200 shrink-0"
+          to="/support"
+        >
+          <LifeBuoy className="h-3.5 w-3.5" />
+          <span>Central Support</span>
+        </Link>
+      </div>
+
       {error ? (
         <p className="mt-5 rounded-2xl border border-error/30 bg-red-50 p-4 text-xs font-medium text-error" role="alert">
           {error}
@@ -303,7 +335,7 @@ const OrderHistorySection = ({ user, compact = false }) => {
                 <ul className="divide-y divide-border/60 py-2">
                   {(order.items || []).map((item, idx) => (
                     <li
-                      className="flex flex-col justify-between gap-1 py-3 sm:flex-row sm:items-center"
+                      className="flex flex-col justify-between gap-2 py-3 sm:flex-row sm:items-center"
                       key={item.id || item.name || idx}
                     >
                       <div>
@@ -312,9 +344,37 @@ const OrderHistorySection = ({ user, compact = false }) => {
                           {item.category} · Maker: <span className="text-secondary font-medium">{item.artisanName || item.artisan || 'Artisan'}</span> · Qty {item.quantity}
                         </p>
                       </div>
-                      <p className="font-mono font-bold text-sm text-text-main">
-                        {formatPrice(item.price * item.quantity)}
-                      </p>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="font-mono font-bold text-sm text-text-main">
+                          {formatPrice(item.price * item.quantity)}
+                        </p>
+
+                        {/* Post-delivery actions: verified review & dispute complaint */}
+                        {isPaid && status !== 'Rejected' && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50/70 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 cursor-pointer"
+                              onClick={() => setReviewModalState({ open: true, order, item })}
+                              title="Write verified buyer review"
+                              type="button"
+                            >
+                              <Star className="h-3 w-3 fill-emerald-600 text-emerald-600" />
+                              <span>Review</span>
+                            </button>
+
+                            <button
+                              className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold text-text-secondary hover:border-rose-300 hover:text-rose-700 hover:bg-rose-50/60 cursor-pointer"
+                              onClick={() => setDisputeModalState({ open: true, order, item })}
+                              title="Report damaged, delayed or incorrect product"
+                              type="button"
+                            >
+                              <ShieldAlert className="h-3 w-3" />
+                              <span>Dispute</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -329,6 +389,16 @@ const OrderHistorySection = ({ user, compact = false }) => {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    {status === 'Disputed' && (
+                      <Link
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-800 hover:bg-purple-100 transition"
+                        to="/support"
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5 text-purple-700" />
+                        <span>Dispute In Progress (Track in Support)</span>
+                      </Link>
+                    )}
+
                     {!isPaid && status !== 'Rejected' && (
                       <button
                         className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary-hover px-4 py-2 text-xs font-bold text-white shadow-xs hover:shadow hover:brightness-105 active:scale-98 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary disabled:opacity-50 cursor-pointer"
@@ -374,6 +444,28 @@ const OrderHistorySection = ({ user, compact = false }) => {
           </Link>
         </div>
       ) : null}
+
+      {/* Modals */}
+      <DisputeModal
+        isOpen={disputeModalState.open}
+        item={disputeModalState.item}
+        onClose={() => setDisputeModalState({ open: false, order: null, item: null })}
+        onDisputeCreated={() => {
+          loadOrders()
+          alert('Dispute submitted successfully. You can track mediation status in the Central Support Centre.')
+        }}
+        order={disputeModalState.order}
+      />
+
+      <VerifiedReviewModal
+        isOpen={reviewModalState.open}
+        item={reviewModalState.item}
+        onClose={() => setReviewModalState({ open: false, order: null, item: null })}
+        onReviewSubmitted={() => {
+          alert('Verified review submitted and published on product page!')
+        }}
+        order={reviewModalState.order}
+      />
     </section>
   )
 }

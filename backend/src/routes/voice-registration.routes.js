@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getVoiceQuestions,
+  getVoiceQuestionAudioController,
   processVoiceAnswer,
   getVoiceSummary,
   registerArtisanVoice,
@@ -12,6 +13,7 @@ const router = Router();
 
 // Public routes for voice registration
 router.get("/questions", getVoiceQuestions);
+router.post("/question-audio", getVoiceQuestionAudioController);
 router.post("/process-answer", processVoiceAnswer);
 router.post("/summary", getVoiceSummary);
 router.post("/register", registerArtisanVoice);

@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import path from "path";
 import authRoutes from "./routes/auth.routes.js";
 import artisanRoutes from "./routes/artisan.routes.js";
 import expertRoutes from "./routes/expert.routes.js";
@@ -10,6 +11,11 @@ import industryRoutes from "./routes/industry.routes.js";
 import customerRoutes from "./routes/customer.routes.js";
 import paymentRoutes from "./routes/payment.routes.js";
 import voiceRoutes from "./routes/voice-registration.routes.js";
+import supportRoutes from "./routes/support.routes.js";
+import disputeRoutes from "./routes/dispute.routes.js";
+import reviewRoutes from "./routes/review.routes.js";
+import reportRoutes from "./routes/report.routes.js";
+import adminSupportRoutes from "./routes/admin-support.routes.js";
 
 const app = express();
 
@@ -35,9 +41,13 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "16kb" }));
-app.use(express.urlencoded({ extended: true, limit: "16kb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
+
+// Static file serving for uploads and public assets
+app.use("/public", express.static(path.resolve("public")));
+app.use("/uploads", express.static(path.resolve("public/uploads")));
 
 // Health check endpoints
 app.get("/", (req, res) => {
@@ -80,6 +90,21 @@ app.use("/api/v1/payment", paymentRoutes);
 
 app.use("/api/voice", voiceRoutes);
 app.use("/api/v1/voice", voiceRoutes);
+
+app.use("/api/support", supportRoutes);
+app.use("/api/v1/support", supportRoutes);
+
+app.use("/api/disputes", disputeRoutes);
+app.use("/api/v1/disputes", disputeRoutes);
+
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/v1/reviews", reviewRoutes);
+
+app.use("/api/reports", reportRoutes);
+app.use("/api/v1/reports", reportRoutes);
+
+app.use("/api/admin/support", adminSupportRoutes);
+app.use("/api/v1/admin/support", adminSupportRoutes);
 
 // 404 handler
 app.use((req, res) => {

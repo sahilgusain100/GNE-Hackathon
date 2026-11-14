@@ -27,7 +27,7 @@ const userSchema = new mongoose.Schema(
     },
     accountType: {
       type: String,
-      enum: ["customer", "artisan", "expert", "industry"],
+      enum: ["customer", "artisan", "expert", "industry", "admin", "support"],
       default: "customer",
       index: true,
     },

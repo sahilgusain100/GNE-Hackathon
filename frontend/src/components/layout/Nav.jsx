@@ -10,6 +10,8 @@ import {
   ShoppingBag,
   User,
   UserCheck,
+  LifeBuoy,
+  ShieldCheck,
 } from 'lucide-react'
 import { useAuthDialog } from '../../hooks/useAuthDialog'
 import { getAccountHomePath } from '../../utils/account-routing'
@@ -100,6 +102,26 @@ const Nav = ({ variant = 'home', cartCount = 0, onItemClick }) => {
           >
             <span>Orders</span>
           </Link>
+
+          <Link
+            className={navLinkClass('/support')}
+            onClick={onItemClick}
+            to="/support"
+          >
+            <LifeBuoy className="h-4 w-4 text-accent-light" />
+            <span>Support</span>
+          </Link>
+
+          {(currentUser?.accountType === 'admin' || currentUser?.accountType === 'support') && (
+            <Link
+              className={navLinkClass('/admin/support')}
+              onClick={onItemClick}
+              to="/admin/support"
+            >
+              <ShieldCheck className="h-4 w-4 text-accent-light" />
+              <span>Admin Desk</span>
+            </Link>
+          )}
 
           {currentUser ? (
             <div className="flex flex-wrap items-center gap-2 pt-2 md:pt-0 md:border-l md:border-white/15 md:pl-2">
@@ -217,6 +239,15 @@ const Nav = ({ variant = 'home', cartCount = 0, onItemClick }) => {
           to="/about-us"
         >
           <span>About</span>
+        </Link>
+
+        <Link
+          className={navLinkClass('/support')}
+          onClick={onItemClick}
+          to="/support"
+        >
+          <LifeBuoy className="h-4 w-4 text-accent-light" />
+          <span>Support</span>
         </Link>
 
         {currentUser ? (

@@ -93,6 +93,8 @@ export const requireCustomer = requireRoles("customer");
 export const requireArtisan = requireRoles("artisan");
 export const requireExpert = requireRoles("expert");
 export const requireIndustry = requireRoles("industry");
+export const requireAdmin = requireRoles("admin");
+export const requireStaff = requireRoles("admin", "support");
 
 export const requireVerifiedExpert = (req, res, next) => {
   if (!req.user) {

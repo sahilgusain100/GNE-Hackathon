@@ -5,6 +5,7 @@ import {
   buildSummaryText,
 } from "../utils/artisan-voice-questions.js";
 import { extractVoiceAnswer } from "../config/voice-ai.config.js";
+import { getVoiceQuestionAudio } from "../services/voice-tts.service.js";
 
 const getCookieOptions = () => ({
   httpOnly: true,
@@ -29,6 +30,37 @@ export const getVoiceQuestions = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Generate audio for a predefined artisan registration question
+ * @route   POST /api/voice/question-audio
+ * @access  Public
+ */
+export const getVoiceQuestionAudioController = async (req, res) => {
+  const { question_id: questionId, language = "pa" } = req.body || {};
+  const supportedLanguages = ["pa", "hi", "en"];
+  const questionExists = ARTISAN_QUESTIONS.some((question) => question.id === questionId);
+
+  if (!questionExists || !supportedLanguages.includes(language)) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid question_id and language are required.",
+    });
+  }
+
+  try {
+    const audio = await getVoiceQuestionAudio(questionId, language);
+    res.set("Content-Type", "audio/wav");
+    res.set("Cache-Control", "public, max-age=86400");
+    return res.status(200).send(audio);
+  } catch (error) {
+    console.error("Voice question TTS failed:", error.message);
+    return res.status(502).json({
+      success: false,
+      message: "Question audio is temporarily unavailable.",
+    });
   }
 };
 

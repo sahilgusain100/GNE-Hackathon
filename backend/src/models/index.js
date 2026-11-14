@@ -8,3 +8,8 @@ export { Project } from "./project.model.js";
 export { Wishlist } from "./wishlist.model.js";
 export { Address } from "./address.model.js";
 export { Evaluation } from "./evaluation.model.js";
+export { Ticket } from "./ticket.model.js";
+export { TicketMessage } from "./ticket-message.model.js";
+export { Dispute } from "./dispute.model.js";
+export { Review } from "./review.model.js";
+export { Report } from "./report.model.js";
