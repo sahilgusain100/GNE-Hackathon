@@ -12,13 +12,16 @@ import {
   Clock3,
   CreditCard,
   Download,
+  Edit3,
   Info,
   LifeBuoy,
+  MapPin,
   PackagePlus,
   Printer,
   Receipt,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Star,
   Store,
@@ -41,6 +44,8 @@ import { getAccountHomePath } from '../utils/account-routing'
 import {
   analyzeProjectApi,
   createIndustryProjectApi,
+  updateIndustryProjectApi,
+  assignProjectToArtisanApi,
   getAvailableArtisansForIndustryApi,
   getIndustryDashboardApi,
   markAllNotificationsReadApi,
@@ -95,6 +100,11 @@ const IndustryDashboardPage = () => {
   const [modalError, setModalError] = useState('')
   const [disputeModalOrder, setDisputeModalOrder] = useState(null)
 
+  // Intelligent Matching & Editing States
+  const [editingRequirement, setEditingRequirement] = useState(null)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [assigningArtisanId, setAssigningArtisanId] = useState(null)
+
   // Smart Responsible Analysis State
   const [analysisData, setAnalysisData] = useState(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -106,6 +116,8 @@ const IndustryDashboardPage = () => {
     unitPrice: 500,
     duration: '30 days',
     deadline: '',
+    requiredQualityLevel: 'Any',
+    preferredLocation: '',
     details: '',
   })
 
@@ -168,7 +180,12 @@ const IndustryDashboardPage = () => {
                 createdAt: p.createdAt,
                 deadline: p.deadline,
                 duration: p.duration,
+                durationDays: p.durationDays,
                 specifications: p.specifications,
+                requiredQualityLevel: p.requiredQualityLevel || 'Any',
+                preferredLocation: p.preferredLocation || '',
+                matchedArtisans: Array.isArray(p.matchedArtisans) ? p.matchedArtisans : [],
+                rawStatus: p.status,
                 items: [
                   {
                     name: p.title,
@@ -504,7 +521,7 @@ const IndustryDashboardPage = () => {
     return <Navigate replace to={getAccountHomePath(currentUser)} />
   }
 
-  // Handle Form Submit: Create and Assign Project
+  // Handle Form Submit: Create Requirement & Run Auto-Matching
   const handleCreateOrder = async (event) => {
     event.preventDefault()
     setNotice('')
@@ -512,17 +529,8 @@ const IndustryDashboardPage = () => {
     setIsSubmitting(true)
 
     const formData = new FormData(event.currentTarget)
-    const artisanId = formData.get('artisanId')
-    const artisan = artisans.find(
-      (entry) => entry.id === artisanId || entry._id === artisanId,
-    )
-
-    if (!artisan) {
-      setNotice('Choose an active artisan account before assigning this order.')
-      setNoticeIsError(true)
-      setIsSubmitting(false)
-      return
-    }
+    const artisanId = formData.get('artisanId') || ''
+    const artisan = artisanId ? artisans.find((entry) => entry.id === artisanId || entry._id === artisanId) : null
 
     const quantity = Number(formData.get('quantity')) || 1
     const unitPrice = Number(formData.get('unitPrice')) || 0
@@ -531,8 +539,10 @@ const IndustryDashboardPage = () => {
     const duration = String(formData.get('duration')).trim() || '30 days'
     const details = String(formData.get('details')).trim()
     const deadline = String(formData.get('deadline'))
+    const requiredQualityLevel = String(formData.get('requiredQualityLevel') || 'Any')
+    const preferredLocation = String(formData.get('preferredLocation') || '').trim()
 
-    // Create project in backend
+    // Create project in backend with automatic intelligent matching
     try {
       const res = await createIndustryProjectApi({
         title,
@@ -541,28 +551,115 @@ const IndustryDashboardPage = () => {
         unitPrice,
         duration,
         deadline,
+        requiredQualityLevel,
+        preferredLocation,
         specifications: details,
-        assignedArtisanId: artisan.id || artisan._id,
+        assignedArtisanId: artisan ? (artisan.id || artisan._id) : null,
       });
 
       if (res?.success) {
+        const matchesCount = res.project?.matchedArtisans?.length || 0;
         setNotice(
-          `Project assigned to ${artisan.name} successfully at ₹${unitPrice}/item for ${duration}. The artisan will receive notification immediately.`
+          artisan
+            ? `Requirement created and assigned to ${artisan.name} successfully at ₹${unitPrice}/item for ${duration}. The artisan has received your request.`
+            : `Requirement submitted! Skill Bridge has automatically evaluated and ranked ${matchesCount} eligible artisans based on your specifications.`
         );
       } else {
-        throw new Error(res?.message || 'Failed to assign project.');
+        throw new Error(res?.message || 'Failed to submit requirement.');
       }
     } catch (apiErr) {
       console.error('Backend project creation error:', apiErr.message);
-      setNotice(apiErr.message || 'The order request could not be assigned.');
+      setNotice(apiErr.message || 'The requirement could not be submitted.');
       setNoticeIsError(true);
     }
 
-    refreshBackendData();
+    await refreshBackendData();
     setFormOpen(false)
     setAnalysisData(null)
     setIsSubmitting(false)
     event.currentTarget.reset()
+  }
+
+  // Handle Update Requirement & Automatically Recalculate Matches
+  const handleUpdateRequirement = async (event) => {
+    event.preventDefault()
+    if (!editingRequirement) return
+    setIsUpdating(true)
+    setNotice('')
+    setNoticeIsError(false)
+
+    const formData = new FormData(event.currentTarget)
+    const updateData = {
+      title: String(formData.get('title')).trim(),
+      category: String(formData.get('category')).trim(),
+      quantity: Number(formData.get('quantity')) || 1,
+      unitPrice: Number(formData.get('unitPrice')) || 0,
+      duration: String(formData.get('duration')).trim() || '30 days',
+      deadline: String(formData.get('deadline')),
+      requiredQualityLevel: String(formData.get('requiredQualityLevel') || 'Any'),
+      preferredLocation: String(formData.get('preferredLocation') || '').trim(),
+      specifications: String(formData.get('details')).trim(),
+    }
+
+    try {
+      const res = await updateIndustryProjectApi(
+        editingRequirement.id || editingRequirement._id,
+        updateData
+      )
+      if (res?.success) {
+        const matchesCount = res.project?.matchedArtisans?.length || 0
+        setNotice(
+          `✅ Requirement updated! Skill Bridge has automatically recalculated matches and re-ranked ${matchesCount} artisans.`
+        )
+        setEditingRequirement(null)
+        await refreshBackendData()
+      } else {
+        throw new Error(res?.message || 'Failed to update requirement.')
+      }
+    } catch (err) {
+      console.error('Update requirement error:', err)
+      setNotice(err.message || 'Failed to update requirement.')
+      setNoticeIsError(true)
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  // Handle 1-Click Assignment of a Matched Artisan
+  const handleAssignMatchedArtisan = async (orderOrProject, matchedArtisan) => {
+    if (!orderOrProject || !matchedArtisan) return
+    const targetProjectId = orderOrProject.id || orderOrProject._id
+    setAssigningArtisanId(matchedArtisan.artisanId)
+    setNotice('')
+    setNoticeIsError(false)
+
+    try {
+      const res = await assignProjectToArtisanApi(targetProjectId, {
+        artisanId: matchedArtisan.artisanId,
+        agreedPrice:
+          matchedArtisan.quotedPrice ||
+          orderOrProject.unitPrice ||
+          orderOrProject.items?.[0]?.price,
+        agreedDuration: `${matchedArtisan.estimatedDeliveryDays || 30} days`,
+        deadline: orderOrProject.deadline,
+        specifications: orderOrProject.specifications,
+      })
+
+      if (res?.success) {
+        setNotice(
+          `🎉 Production order assigned to ${matchedArtisan.name} successfully! They have been notified immediately.`
+        )
+        await refreshBackendData()
+      } else {
+        throw new Error(res?.message || 'Failed to assign project to artisan.')
+      }
+    } catch (err) {
+      console.error('Assign artisan error:', err)
+      setNotice(err.message || 'Failed to assign project to artisan.')
+      setNoticeIsError(true)
+    } finally {
+      setAssigningArtisanId(null)
+    }
   }
 
   const artisanCategories = [
@@ -638,7 +735,7 @@ const IndustryDashboardPage = () => {
                 type="button"
               >
                 <PackagePlus aria-hidden="true" className="h-4 w-4" />
-                {formOpen ? 'Close request form' : 'Assign a new project'}
+                {formOpen ? 'Close requirement form' : 'Submit a new requirement'}
               </button>
             </div>
           </div>
@@ -807,11 +904,11 @@ const IndustryDashboardPage = () => {
             <div className="sm:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-secondary">
-                    ASSIGN CUSTOM PROJECT OR PRODUCTION ORDER
+                  <p className="text-sm font-semibold text-secondary uppercase tracking-wider">
+                    Submit Craft Requirements & Auto-Match Artisans
                   </p>
                   <h2 className="mt-1 font-serif text-2xl font-semibold text-text-main">
-                    Assign a project according to price & duration
+                    Describe your craft requirements
                   </h2>
                 </div>
                 <button
@@ -825,8 +922,8 @@ const IndustryDashboardPage = () => {
                 </button>
               </div>
               <p className="mt-2 text-sm leading-6 text-text-secondary">
-                Select an artisan or choose from AI-recommended makers. The artisan will receive
-                your offer price, quantity, and requested time duration, and can accept the project directly.
+                Provide your requirements below. Skill Bridge automatically identifies and ranks the most suitable
+                artisans from MongoDB based on price fit, delivery capacity, verified quality, ratings, and experience.
               </p>
             </div>
 
@@ -908,7 +1005,7 @@ const IndustryDashboardPage = () => {
             {artisans.length ? (
               <>
                 <label className="text-sm font-medium text-text-main sm:col-span-2">
-                  Assign to artisan
+                  Artisan assignment mode
                   <select
                     className={inputClass}
                     defaultValue=""
@@ -916,22 +1013,25 @@ const IndustryDashboardPage = () => {
                     onChange={(e) =>
                       setFormFields((prev) => ({ ...prev, artisanId: e.target.value }))
                     }
-                    required
                   >
-                    <option disabled value="">Choose an artisan account</option>
-                    {artisans.map((artisan) => (
-                      <option key={artisan.id || artisan._id} value={artisan.id || artisan._id}>
-                        {artisan.name}
-                        {artisan.artCategory ? ` · ${artisan.artCategory}` : ''}
-                        {artisan.experience ? ` · ${artisan.experience}` : ''}
-                        {artisan.city ? ` · ${artisan.city}` : ''}
-                      </option>
-                    ))}
+                    <option value="">✨ Automatically match & rank eligible artisans (Recommended)</option>
+                    {artisans.length > 0 && (
+                      <optgroup label="Or select a specific artisan directly">
+                        {artisans.map((artisan) => (
+                          <option key={artisan.id || artisan._id} value={artisan.id || artisan._id}>
+                            {artisan.name} · {artisan.artCategory || 'Craft'} {artisan.city ? `(${artisan.city})` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
+                  <span className="mt-1 block text-xs text-text-muted">
+                    Skill Bridge will automatically evaluate all eligible artisans across 5 normalized parameters (Price, Delivery Capacity, Quality, Rating, and Experience) upon submission.
+                  </span>
                 </label>
 
                 <label className="text-sm font-medium text-text-main">
-                  Order or product name
+                  Requirement or product name
                   <input
                     className={inputClass}
                     maxLength={100}
@@ -945,7 +1045,7 @@ const IndustryDashboardPage = () => {
                 </label>
 
                 <label className="text-sm font-medium text-text-main">
-                  Craft category
+                  Craft specialization / category
                   <select
                     className={inputClass}
                     defaultValue=""
@@ -969,7 +1069,7 @@ const IndustryDashboardPage = () => {
                 </label>
 
                 <label className="text-sm font-medium text-text-main">
-                  Quantity
+                  Required quantity
                   <input
                     className={inputClass}
                     defaultValue={1}
@@ -984,7 +1084,7 @@ const IndustryDashboardPage = () => {
                 </label>
 
                 <label className="text-sm font-medium text-text-main">
-                  Offer price per item (₹)
+                  Maximum budget / offer per unit (₹)
                   <input
                     className={inputClass}
                     defaultValue={500}
@@ -999,7 +1099,7 @@ const IndustryDashboardPage = () => {
                 </label>
 
                 <label className="text-sm font-medium text-text-main">
-                  Time duration / timeline
+                  Expected timeline / duration
                   <input
                     className={inputClass}
                     defaultValue="30 days"
@@ -1013,7 +1113,7 @@ const IndustryDashboardPage = () => {
                 </label>
 
                 <label className="text-sm font-medium text-text-main">
-                  Requested delivery deadline
+                  Expected delivery deadline
                   <input
                     className={inputClass}
                     min={new Date().toISOString().slice(0, 10)}
@@ -1023,6 +1123,36 @@ const IndustryDashboardPage = () => {
                     }
                     required
                     type="date"
+                  />
+                </label>
+
+                <label className="text-sm font-medium text-text-main">
+                  Required quality level
+                  <select
+                    className={inputClass}
+                    defaultValue="Any"
+                    name="requiredQualityLevel"
+                    onChange={(e) =>
+                      setFormFields((prev) => ({ ...prev, requiredQualityLevel: e.target.value }))
+                    }
+                  >
+                    <option value="Any">Any Quality Level (Flexible)</option>
+                    <option value="Standard">Standard Handmade Quality</option>
+                    <option value="High">High Quality (Expert Verified)</option>
+                    <option value="Master / Heritage">Master / Heritage Craft Grade</option>
+                  </select>
+                </label>
+
+                <label className="text-sm font-medium text-text-main">
+                  Preferred location (Optional)
+                  <input
+                    className={inputClass}
+                    maxLength={100}
+                    name="preferredLocation"
+                    onChange={(e) =>
+                      setFormFields((prev) => ({ ...prev, preferredLocation: e.target.value }))
+                    }
+                    placeholder="e.g. Jaipur, Rajasthan, Kashmir, or blank for any"
                   />
                 </label>
 
@@ -1050,16 +1180,16 @@ const IndustryDashboardPage = () => {
                   </div>
                   <span className="inline-flex items-center gap-1.5 text-xs text-text-secondary">
                     <Info className="h-4 w-4 text-secondary" />
-                    Artisan will receive notification and can accept or counter
+                    Artisans will be automatically ranked from highest to lowest compatibility upon submission
                   </span>
                 </div>
 
                 <button
-                  className="min-h-11 rounded-lg bg-primary px-5 py-2.5 font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-2"
-                  disabled={!artisans.length || isSubmitting}
+                  className="min-h-11 rounded-lg bg-primary px-5 py-2.5 font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-2 cursor-pointer"
+                  disabled={isSubmitting}
                   type="submit"
                 >
-                  {isSubmitting ? 'Assigning Project…' : 'Assign order & notify artisan'}
+                  {isSubmitting ? 'Evaluating & Submitting Requirement…' : 'Submit Requirement & Auto-Match Artisans'}
                 </button>
               </>
             ) : (
@@ -1248,45 +1378,88 @@ const IndustryDashboardPage = () => {
                             Delivery requested by {new Date(`${order.deadline.slice(0, 10)}T12:00:00`).toLocaleDateString()}
                           </p>
                         )}
+                        {order.requiredQualityLevel && order.requiredQualityLevel !== 'Any' && (
+                          <p className="mt-1 flex items-center gap-2 text-sm text-text-secondary">
+                            <Award className="h-4 w-4 text-secondary" />
+                            Target quality level: <strong className="font-semibold text-text-main">{order.requiredQualityLevel}</strong>
+                          </p>
+                        )}
+                        {order.preferredLocation && (
+                          <p className="mt-1 flex items-center gap-2 text-sm text-text-secondary">
+                            <MapPin className="h-4 w-4 text-secondary" />
+                            Preferred region: <strong className="font-semibold text-text-main">{order.preferredLocation}</strong>
+                          </p>
+                        )}
                         {order.specifications && (
                           <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-text-secondary">
                             {order.specifications}
                           </p>
                         )}
                         <p className="mt-2 text-xs text-text-muted">
-                          Assigned on {new Date(order.createdAt).toLocaleDateString()}
+                          Created on {new Date(order.createdAt).toLocaleDateString()}
                         </p>
+                        {(!assignedArtisan.name ||
+                          assignedArtisan.name === 'Open / Unassigned' ||
+                          order.status === 'Open' ||
+                          order.status === 'Awaiting response') && (
+                          <div className="mt-3">
+                            <button
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-1.5 text-xs font-semibold text-secondary hover:bg-secondary/20 transition cursor-pointer"
+                              onClick={() => setEditingRequirement(order)}
+                              type="button"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                              Edit Requirement & Recalculate Matches
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <div className="rounded-lg border border-border bg-surface p-4">
                         <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-text-main">Artisan contact</p>
-                          {isAccepted && (
+                          <p className="text-sm font-semibold text-text-main">
+                            {assignedArtisan.name && assignedArtisan.name !== 'Open / Unassigned'
+                              ? 'Artisan contact'
+                              : 'Requirement Status'}
+                          </p>
+                          {isAccepted ? (
                             <span className="flex items-center gap-1 text-xs font-semibold text-success">
                               <CheckCircle2 className="h-3.5 w-3.5" /> Accepted & verified
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-semibold text-secondary">
+                              <Sparkles className="h-3 w-3" /> Auto-Matching Active
                             </span>
                           )}
                         </div>
 
-                        <p className="mt-2 font-medium text-text-main">
-                          {assignedArtisan.name || item?.artisan}
-                        </p>
-                        {assignedArtisan.artCategory && (
-                          <p className="text-xs text-text-secondary">
-                            Craft: {assignedArtisan.artCategory}
-                          </p>
-                        )}
-                        {assignedArtisan.email && (
-                          <a
-                            className="mt-2 block break-all text-sm text-primary hover:underline"
-                            href={`mailto:${assignedArtisan.email}`}
-                          >
-                            {assignedArtisan.email}
-                          </a>
-                        )}
-                        {assignedArtisan.phone && (
-                          <p className="mt-1 text-sm text-text-muted">
-                            Phone: {assignedArtisan.phone}
+                        {assignedArtisan.name && assignedArtisan.name !== 'Open / Unassigned' ? (
+                          <>
+                            <p className="mt-2 font-medium text-text-main">
+                              {assignedArtisan.name || item?.artisan}
+                            </p>
+                            {assignedArtisan.artCategory && (
+                              <p className="text-xs text-text-secondary">
+                                Craft: {assignedArtisan.artCategory}
+                              </p>
+                            )}
+                            {assignedArtisan.email && (
+                              <a
+                                className="mt-2 block break-all text-sm text-primary hover:underline"
+                                href={`mailto:${assignedArtisan.email}`}
+                              >
+                                {assignedArtisan.email}
+                              </a>
+                            )}
+                            {assignedArtisan.phone && (
+                              <p className="mt-1 text-sm text-text-muted">
+                                Phone: {assignedArtisan.phone}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="mt-2 text-sm leading-6 text-text-secondary">
+                            This requirement is open. Eligible artisans have been evaluated across price fit, delivery capacity, quality, rating, and experience, and are ranked below. Select any artisan to assign production.
                           </p>
                         )}
 
@@ -1305,6 +1478,231 @@ const IndustryDashboardPage = () => {
                         )}
                       </div>
                     </div>
+
+                    {/* Intelligently Matched Artisans (Ranked by Compatibility) */}
+                    {Array.isArray(order.matchedArtisans) && order.matchedArtisans.length > 0 && (
+                      <div className="border-t border-border bg-gradient-to-b from-surface to-background/50 p-5 sm:p-6">
+                        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <Sparkles className="h-4 w-4 text-secondary" />
+                              <h4 className="font-serif text-lg font-bold text-text-main">
+                                Intelligently Matched Artisans (Ranked by Compatibility)
+                              </h4>
+                            </div>
+                            <p className="mt-0.5 text-xs text-text-secondary">
+                              Evaluated and ranked on Price Fit (25%), Delivery Capacity (20%), Verified Quality (25%), Customer Rating (15%), and Experience (15%).
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                              {order.matchedArtisans.filter((m) => m.isEssentialMatch).length} Full Matches
+                            </span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                              {order.matchedArtisans.filter((m) => !m.isEssentialMatch).length} Partial Matches
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3.5">
+                          {order.matchedArtisans.map((artisan, index) => {
+                            const isBest = artisan.isBestMatch || index === 0
+                            const isCurrentlyAssigned =
+                              order.assignedArtisan?.id === artisan.artisanId ||
+                              order.assignedArtisan?._id === artisan.artisanId ||
+                              (order.assignedArtisan?.name && order.assignedArtisan.name === artisan.name)
+
+                            return (
+                              <div
+                                key={artisan.artisanId || artisan.name}
+                                className={`rounded-xl border p-4 sm:p-5 transition ${
+                                  isBest
+                                    ? 'border-amber-400/80 bg-gradient-to-br from-amber-50/60 via-white to-amber-50/30 shadow-md ring-2 ring-amber-400/20'
+                                    : 'border-border bg-surface hover:border-secondary/40 shadow-xs'
+                                }`}
+                              >
+                                {/* Best Match Banner */}
+                                {isBest && (
+                                  <div className="mb-3 flex items-center justify-between border-b border-amber-200 pb-2">
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 text-white px-3 py-0.5 text-xs font-bold uppercase tracking-wider shadow-xs">
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                      Best Overall Match · #{index + 1} Ranked
+                                    </span>
+                                    <span className="text-xs font-semibold text-amber-900">
+                                      Highest Multi-Parameter Compatibility
+                                    </span>
+                                  </div>
+                                )}
+
+                                {/* Artisan Header & Core Info */}
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="flex items-center gap-3.5">
+                                    {artisan.avatar ? (
+                                      <img
+                                        src={artisan.avatar}
+                                        alt={artisan.name}
+                                        className="h-12 w-12 rounded-full object-cover border border-border shadow-xs"
+                                      />
+                                    ) : (
+                                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-base border border-primary/20">
+                                        {artisan.name ? artisan.name.slice(0, 2).toUpperCase() : 'AR'}
+                                      </div>
+                                    )}
+                                    <div>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <h5 className="font-serif text-base font-bold text-text-main">
+                                          {artisan.name}
+                                        </h5>
+                                        {artisan.isVerified && (
+                                          <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 border border-sky-200 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
+                                            <ShieldCheck className="h-3 w-3 text-sky-600" />
+                                            Verified Artisan
+                                          </span>
+                                        )}
+                                        <span className="inline-flex items-center rounded-md bg-secondary/10 px-2 py-0.5 text-xs font-medium text-secondary">
+                                          {artisan.specialization}
+                                        </span>
+                                      </div>
+                                      <div className="mt-1 flex items-center gap-3 text-xs text-text-muted flex-wrap">
+                                        <span className="flex items-center gap-1">
+                                          <MapPin className="h-3 w-3 text-secondary" />
+                                          {[artisan.city, artisan.state].filter(Boolean).join(', ') || 'India'}
+                                        </span>
+                                        <span>·</span>
+                                        <span>{artisan.experience || `${artisan.experienceYears} yrs experience`}</span>
+                                        <span>·</span>
+                                        <span>{artisan.completedProjects} completed project(s)</span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-3 text-right">
+                                    <div>
+                                      <span className="font-serif text-2xl font-extrabold text-emerald-700">
+                                        {artisan.overallMatchPercentage}%
+                                      </span>
+                                      <span className="block text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                                        Match Score
+                                      </span>
+                                    </div>
+                                    <div>
+                                      {artisan.isEssentialMatch ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-300 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                          Full Match
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-300 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                                          <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                                          Partial Match
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* 5-Parameter Metrics Grid */}
+                                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5 text-xs">
+                                  {/* 1. Price */}
+                                  <div className="rounded-lg border border-border bg-background p-2.5">
+                                    <span className="text-[10px] uppercase font-bold text-text-muted block">Quoted Price</span>
+                                    <span className="font-bold text-sm text-text-main block mt-0.5">
+                                      ₹{artisan.quotedPrice?.toLocaleString('en-IN')}/unit
+                                    </span>
+                                    <span className="text-[11px] text-text-muted block mt-0.5">
+                                      Total: ₹{(artisan.quotedPrice * (order.items?.[0]?.quantity || 1)).toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
+
+                                  {/* 2. Delivery */}
+                                  <div className="rounded-lg border border-border bg-background p-2.5">
+                                    <span className="text-[10px] uppercase font-bold text-text-muted block">Delivery Time</span>
+                                    <span className="font-bold text-sm text-text-main block mt-0.5">
+                                      ~{artisan.estimatedDeliveryDays} days
+                                    </span>
+                                    <span className="text-[11px] text-text-muted block mt-0.5">
+                                      {artisan.estimatedDeliveryDate
+                                        ? new Date(artisan.estimatedDeliveryDate).toLocaleDateString()
+                                        : 'On schedule'}
+                                    </span>
+                                  </div>
+
+                                  {/* 3. Quality */}
+                                  <div className="rounded-lg border border-border bg-background p-2.5">
+                                    <span className="text-[10px] uppercase font-bold text-text-muted block">Quality Score</span>
+                                    <span className="font-bold text-sm text-emerald-700 block mt-0.5">
+                                      {artisan.qualityScore != null ? `${artisan.qualityScore}/10` : 'Unverified'}
+                                    </span>
+                                    <span className="text-[11px] text-text-muted block mt-0.5">
+                                      {artisan.hasVerifiedQuality ? 'Expert Verified' : 'Audit Pending'}
+                                    </span>
+                                  </div>
+
+                                  {/* 4. Rating */}
+                                  <div className="rounded-lg border border-border bg-background p-2.5">
+                                    <span className="text-[10px] uppercase font-bold text-text-muted block">Customer Rating</span>
+                                    <span className="font-bold text-sm text-amber-700 block mt-0.5">
+                                      {artisan.customerRating != null ? `★ ${artisan.customerRating}` : 'No reviews'}
+                                    </span>
+                                    <span className="text-[11px] text-text-muted block mt-0.5">
+                                      {artisan.reviewCount ? `${artisan.reviewCount} review(s)` : 'New Artisan'}
+                                    </span>
+                                  </div>
+
+                                  {/* 5. Experience */}
+                                  <div className="rounded-lg border border-border bg-background p-2.5 col-span-2 sm:col-span-1">
+                                    <span className="text-[10px] uppercase font-bold text-text-muted block">Experience</span>
+                                    <span className="font-bold text-sm text-text-main block mt-0.5">
+                                      {artisan.experience || `${artisan.experienceYears} yrs`}
+                                    </span>
+                                    <span className="text-[11px] text-text-muted block mt-0.5">
+                                      {artisan.completedProjects} project(s)
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Recommendation Explanation */}
+                                <div className="mt-3 flex items-start gap-2 rounded-lg bg-surface-muted p-2.5 text-xs text-text-secondary border border-border/60">
+                                  <Info className="h-4 w-4 text-secondary shrink-0 mt-0.5" />
+                                  <p className="leading-relaxed">
+                                    <strong className="text-text-main font-semibold">Recommendation: </strong>
+                                    {artisan.recommendationReason}
+                                  </p>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="mt-3.5 flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/70">
+                                  <span className="text-xs text-text-muted">
+                                    Ranked #{index + 1} based on multi-parameter normalization
+                                  </span>
+                                  <div>
+                                    {isCurrentlyAssigned ? (
+                                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-100 text-emerald-800 px-3.5 py-1.5 text-xs font-bold border border-emerald-300">
+                                        <Check className="h-3.5 w-3.5" /> Currently Assigned to this Artisan
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={assigningArtisanId === artisan.artisanId}
+                                        onClick={() => handleAssignMatchedArtisan(order, artisan)}
+                                        className="inline-flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-4 py-2 transition shadow-xs disabled:opacity-60 cursor-pointer"
+                                      >
+                                        <Check className="h-3.5 w-3.5" />
+                                        {assigningArtisanId === artisan.artisanId
+                                          ? 'Assigning…'
+                                          : order.assignedArtisan?.name && order.assignedArtisan.name !== 'Open / Unassigned'
+                                          ? `Switch Assignment to ${artisan.name}`
+                                          : `Assign Project to ${artisan.name} →`}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Integrated Payment Action Strip */}
                     <div className="border-t border-border bg-surface px-5 py-4 sm:px-6">
@@ -1664,6 +2062,168 @@ const IndustryDashboardPage = () => {
                   Done
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Requirement & Automatic Match Recalculation Modal */}
+        {editingRequirement && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+            <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-2xl sm:p-8">
+              <button
+                aria-label="Close"
+                className="absolute right-4 top-4 rounded-lg p-2 text-text-muted hover:bg-surface-muted hover:text-text-main"
+                onClick={() => setEditingRequirement(null)}
+                type="button"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary/15 text-secondary">
+                  <Edit3 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif text-xl font-bold text-text-main">
+                    Edit Requirement & Recalculate Matches
+                  </h3>
+                  <p className="text-xs text-text-muted">
+                    Skill Bridge will automatically re-evaluate and re-rank all eligible artisans once saved.
+                  </p>
+                </div>
+              </div>
+
+              <form className="mt-5 grid gap-4 sm:grid-cols-2" onSubmit={handleUpdateRequirement}>
+                <label className="text-sm font-medium text-text-main sm:col-span-2">
+                  Requirement title
+                  <input
+                    className={inputClass}
+                    defaultValue={editingRequirement.items?.[0]?.name || editingRequirement.title}
+                    maxLength={100}
+                    name="title"
+                    required
+                  />
+                </label>
+
+                <label className="text-sm font-medium text-text-main">
+                  Craft category
+                  <select
+                    className={inputClass}
+                    defaultValue={editingRequirement.items?.[0]?.category || editingRequirement.category}
+                    name="category"
+                    required
+                  >
+                    {artisanCategories.map((category) => (
+                      <option key={category}>{category}</option>
+                    ))}
+                    <option>Textiles & Handloom</option>
+                    <option>Pottery & Ceramics</option>
+                    <option>Woodcraft & Carving</option>
+                    <option>Jewelry & Metalcraft</option>
+                    <option>Leather & Footwear</option>
+                    <option>Other handmade craft</option>
+                  </select>
+                </label>
+
+                <label className="text-sm font-medium text-text-main">
+                  Required quantity
+                  <input
+                    className={inputClass}
+                    defaultValue={editingRequirement.items?.[0]?.quantity || editingRequirement.quantity || 1}
+                    min="1"
+                    name="quantity"
+                    required
+                    type="number"
+                  />
+                </label>
+
+                <label className="text-sm font-medium text-text-main">
+                  Maximum budget / offer per item (₹)
+                  <input
+                    className={inputClass}
+                    defaultValue={editingRequirement.items?.[0]?.price || editingRequirement.unitPrice || 500}
+                    min="1"
+                    name="unitPrice"
+                    required
+                    type="number"
+                  />
+                </label>
+
+                <label className="text-sm font-medium text-text-main">
+                  Delivery timeline / duration
+                  <input
+                    className={inputClass}
+                    defaultValue={editingRequirement.duration || '30 days'}
+                    name="duration"
+                    required
+                  />
+                </label>
+
+                <label className="text-sm font-medium text-text-main">
+                  Delivery deadline
+                  <input
+                    className={inputClass}
+                    defaultValue={editingRequirement.deadline ? new Date(editingRequirement.deadline).toISOString().slice(0, 10) : ''}
+                    min={new Date().toISOString().slice(0, 10)}
+                    name="deadline"
+                    required
+                    type="date"
+                  />
+                </label>
+
+                <label className="text-sm font-medium text-text-main">
+                  Required quality level
+                  <select
+                    className={inputClass}
+                    defaultValue={editingRequirement.requiredQualityLevel || 'Any'}
+                    name="requiredQualityLevel"
+                  >
+                    <option value="Any">Any Quality Level (Flexible)</option>
+                    <option value="Standard">Standard Handmade Quality</option>
+                    <option value="High">High Quality (Expert Verified)</option>
+                    <option value="Master / Heritage">Master / Heritage Craft Grade</option>
+                  </select>
+                </label>
+
+                <label className="text-sm font-medium text-text-main sm:col-span-2">
+                  Preferred location (Optional)
+                  <input
+                    className={inputClass}
+                    defaultValue={editingRequirement.preferredLocation || ''}
+                    name="preferredLocation"
+                    placeholder="e.g. Jaipur, Rajasthan, or leave blank for anywhere"
+                  />
+                </label>
+
+                <label className="text-sm font-medium text-text-main sm:col-span-2">
+                  Specifications & instructions
+                  <textarea
+                    className={inputClass}
+                    defaultValue={editingRequirement.specifications || ''}
+                    maxLength={1000}
+                    name="details"
+                    rows="3"
+                  />
+                </label>
+
+                <div className="sm:col-span-2 flex flex-col sm:flex-row justify-end gap-3 pt-3 border-t border-border">
+                  <button
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-muted"
+                    onClick={() => setEditingRequirement(null)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:opacity-60 cursor-pointer"
+                    disabled={isUpdating}
+                    type="submit"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {isUpdating ? 'Recalculating Matches…' : 'Save & Recalculate Matches'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

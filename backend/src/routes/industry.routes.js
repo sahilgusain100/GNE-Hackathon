@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   getIndustryDashboard,
   createIndustryProject,
+  updateIndustryProject,
   getIndustryProjects,
   getIndustryProjectById,
   assignProjectToArtisan,
@@ -26,6 +27,8 @@ router.get("/projects", getIndustryProjects);
 router.post("/projects", createIndustryProject);
 router.post("/projects/analyze", analyzeProject);
 router.get("/projects/:id", getIndustryProjectById);
+router.put("/projects/:id", updateIndustryProject);
+router.patch("/projects/:id", updateIndustryProject);
 router.post("/projects/:id/assign", assignProjectToArtisan);
 
 // Notifications

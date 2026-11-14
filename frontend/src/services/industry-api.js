@@ -37,6 +37,16 @@ export async function createIndustryProjectApi(projectData) {
 }
 
 /**
+ * Update an existing requirement and trigger automatic recalculation of matched artisans
+ */
+export async function updateIndustryProjectApi(projectId, projectData) {
+  return await apiRequest(`/industry/projects/${projectId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(projectData),
+  })
+}
+
+/**
  * Assign or reassign a project to a specific artisan according to price and time duration
  */
 export async function assignProjectToArtisanApi(projectId, assignmentData) {

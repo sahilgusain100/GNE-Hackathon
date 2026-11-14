@@ -7,6 +7,7 @@ import {
   analyzeResponsibleProject,
   parseDurationToDays,
 } from "../utils/projectAnalysis.js";
+import { findAndRankArtisansForRequirement } from "../utils/artisanMatching.js";
 
 // ==========================================
 // 1. INDUSTRY DASHBOARD OVERVIEW
@@ -20,6 +21,28 @@ export const getIndustryDashboard = async (req, res) => {
       .populate("assignedArtisan", "name email phone artCategory experience city state avatar")
       .populate("orderRef")
       .sort({ createdAt: -1 });
+
+    // Ensure matchedArtisans is populated on existing open projects
+    for (const p of projects) {
+      if (!p.matchedArtisans || p.matchedArtisans.length === 0) {
+        try {
+          p.matchedArtisans = await findAndRankArtisansForRequirement({
+            category: p.category,
+            unitPrice: p.unitPrice,
+            quantity: p.quantity,
+            durationDays: p.durationDays,
+            deadline: p.deadline,
+            requiredQualityLevel: p.requiredQualityLevel,
+            preferredLocation: p.preferredLocation,
+            title: p.title,
+            specifications: p.specifications,
+          });
+          await p.save();
+        } catch (mErr) {
+          console.warn("Backfill matches warning:", mErr.message);
+        }
+      }
+    }
 
     // Fetch orders placed by this industry partner
     const orders = await Order.find({
@@ -139,6 +162,8 @@ export const createIndustryProject = async (req, res) => {
       unitPrice,
       duration,
       deadline,
+      requiredQualityLevel,
+      preferredLocation,
       specifications,
       artisanId,
       assignedArtisanId,
@@ -182,6 +207,19 @@ export const createIndustryProject = async (req, res) => {
       specifications: specifications?.trim() || "",
     });
 
+    // Run Intelligent Artisan Matching Algorithm
+    const matchedArtisans = await findAndRankArtisansForRequirement({
+      category: category.trim(),
+      unitPrice: price,
+      quantity: qty,
+      durationDays,
+      deadline: deadline ? new Date(deadline) : null,
+      requiredQualityLevel: requiredQualityLevel || "Any",
+      preferredLocation: preferredLocation ? preferredLocation.trim() : "",
+      title: title.trim(),
+      specifications: specifications?.trim() || "",
+    });
+
     // Create Project
     const project = await Project.create({
       industry: industryId,
@@ -194,6 +232,8 @@ export const createIndustryProject = async (req, res) => {
       duration: duration?.trim() || `${durationDays} days`,
       durationDays,
       deadline: deadline ? new Date(deadline) : null,
+      requiredQualityLevel: requiredQualityLevel || "Any",
+      preferredLocation: preferredLocation ? preferredLocation.trim() : "",
       specifications: specifications?.trim() || "",
       dimensions: dimensions?.trim() || "",
       materials: Array.isArray(materials)
@@ -204,6 +244,7 @@ export const createIndustryProject = async (req, res) => {
       assignedArtisan: assignedArtisan ? assignedArtisan._id : null,
       status: assignedArtisan ? "Assigned" : "Open",
       responsibleAnalysis,
+      matchedArtisans,
     });
 
     let createdOrder = null;
@@ -317,6 +358,27 @@ export const getIndustryProjects = async (req, res) => {
       .populate("orderRef")
       .sort({ createdAt: -1 });
 
+    for (const p of projects) {
+      if (!p.matchedArtisans || p.matchedArtisans.length === 0) {
+        try {
+          p.matchedArtisans = await findAndRankArtisansForRequirement({
+            category: p.category,
+            unitPrice: p.unitPrice,
+            quantity: p.quantity,
+            durationDays: p.durationDays,
+            deadline: p.deadline,
+            requiredQualityLevel: p.requiredQualityLevel,
+            preferredLocation: p.preferredLocation,
+            title: p.title,
+            specifications: p.specifications,
+          });
+          await p.save();
+        } catch (mErr) {
+          console.warn("Backfill matches warning:", mErr.message);
+        }
+      }
+    }
+
     return res.status(200).json({
       success: true,
       count: projects.length,
@@ -346,6 +408,25 @@ export const getIndustryProjectById = async (req, res) => {
       });
     }
 
+    if (!project.matchedArtisans || project.matchedArtisans.length === 0) {
+      try {
+        project.matchedArtisans = await findAndRankArtisansForRequirement({
+          category: project.category,
+          unitPrice: project.unitPrice,
+          quantity: project.quantity,
+          durationDays: project.durationDays,
+          deadline: project.deadline,
+          requiredQualityLevel: project.requiredQualityLevel,
+          preferredLocation: project.preferredLocation,
+          title: project.title,
+          specifications: project.specifications,
+        });
+        await project.save();
+      } catch (mErr) {
+        console.warn("Backfill matches warning:", mErr.message);
+      }
+    }
+
     return res.status(200).json({
       success: true,
       project: project.toSafeObject(req.user, project.assignedArtisan),
@@ -355,6 +436,133 @@ export const getIndustryProjectById = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to retrieve project details.",
+    });
+  }
+};
+
+// ==========================================
+// 3B. UPDATE REQUIREMENT & RECALCULATE MATCHES AUTOMATICALLY
+// ==========================================
+export const updateIndustryProject = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const industryId = req.user._id;
+
+    const project = await Project.findOne({
+      _id: id,
+      industry: industryId,
+    });
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: "Requirement not found or you do not have permission to modify it.",
+      });
+    }
+
+    const {
+      title,
+      category,
+      description,
+      quantity,
+      unitPrice,
+      duration,
+      deadline,
+      requiredQualityLevel,
+      preferredLocation,
+      specifications,
+      materials,
+      dimensions,
+    } = req.body;
+
+    if (title !== undefined) project.title = String(title).trim();
+    if (category !== undefined) project.category = String(category).trim();
+    if (description !== undefined) project.description = String(description).trim();
+    if (quantity !== undefined) project.quantity = Math.max(1, Number(quantity) || 1);
+    if (unitPrice !== undefined) project.unitPrice = Math.max(0, Number(unitPrice) || 0);
+    if (specifications !== undefined) project.specifications = String(specifications).trim();
+    if (dimensions !== undefined) project.dimensions = String(dimensions).trim();
+    if (requiredQualityLevel !== undefined) project.requiredQualityLevel = requiredQualityLevel;
+    if (preferredLocation !== undefined) project.preferredLocation = String(preferredLocation).trim();
+
+    if (materials !== undefined) {
+      project.materials = Array.isArray(materials)
+        ? materials
+        : typeof materials === "string" && materials.trim()
+        ? materials.split(",").map((m) => m.trim()).filter(Boolean)
+        : [];
+    }
+
+    if (deadline !== undefined) {
+      project.deadline = deadline ? new Date(deadline) : null;
+    }
+
+    if (duration !== undefined || deadline !== undefined) {
+      project.durationDays = parseDurationToDays(duration || project.duration, project.deadline);
+      if (duration) project.duration = String(duration).trim();
+    }
+
+    project.totalBudget = project.unitPrice * project.quantity;
+
+    // Recalculate responsible feasibility analysis
+    project.responsibleAnalysis = await analyzeResponsibleProject({
+      title: project.title,
+      category: project.category,
+      description: project.description,
+      quantity: project.quantity,
+      unitPrice: project.unitPrice,
+      duration: project.duration,
+      deadline: project.deadline,
+      specifications: project.specifications,
+    });
+
+    // Automatically recalculate intelligent artisan matches
+    const matchedArtisans = await findAndRankArtisansForRequirement({
+      category: project.category,
+      unitPrice: project.unitPrice,
+      quantity: project.quantity,
+      durationDays: project.durationDays,
+      deadline: project.deadline,
+      requiredQualityLevel: project.requiredQualityLevel,
+      preferredLocation: project.preferredLocation,
+      title: project.title,
+      specifications: project.specifications,
+    });
+
+    project.matchedArtisans = matchedArtisans;
+    await project.save();
+
+    // If linked to an active order, synchronize order details
+    if (project.orderRef) {
+      await Order.findByIdAndUpdate(project.orderRef, {
+        $set: {
+          "items.0.title": project.title,
+          "items.0.name": project.title,
+          "items.0.category": project.category,
+          "items.0.price": project.unitPrice,
+          "items.0.quantity": project.quantity,
+          subtotal: project.totalBudget,
+          totalAmount: project.totalBudget,
+          deadline: project.deadline ? new Date(project.deadline).toISOString().slice(0, 10) : "",
+          specifications: project.specifications,
+        },
+      });
+    }
+
+    const populated = await Project.findById(project._id)
+      .populate("assignedArtisan", "name email phone artCategory experience city state avatar")
+      .populate("orderRef");
+
+    return res.status(200).json({
+      success: true,
+      message: "Requirement updated and artisan matches recalculated automatically.",
+      project: populated.toSafeObject(req.user, populated.assignedArtisan),
+    });
+  } catch (error) {
+    console.error("Update requirement error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update requirement.",
     });
   }
 };
