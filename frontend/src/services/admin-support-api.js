@@ -64,3 +64,65 @@ export async function toggleArtisanVerificationApi(artisanId, data) {
     body: JSON.stringify(data),
   });
 }
+
+/**
+ * -------------------------------------------------------------
+ * Artisan Aadhaar Document Verification & Moderation Management
+ * -------------------------------------------------------------
+ */
+
+export async function getArtisansVerificationQueueApi(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return await apiRequest(`/admin/support/artisan-verification${query ? `?${query}` : ""}`);
+}
+
+export async function getArtisanVerificationDetailApi(artisanId) {
+  return await apiRequest(`/admin/support/artisan-verification/${artisanId}`);
+}
+
+export function getAdminAadhaarDocumentUrl(artisanId, side, token) {
+  const baseUrl = import.meta.env?.VITE_API_URL || "http://localhost:8000/api";
+  return `${baseUrl}/admin/support/artisan-verification/${artisanId}/document/${side}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+}
+
+export async function approveArtisanVerificationApi(artisanId, data = {}) {
+  return await apiRequest(`/admin/support/artisan-verification/${artisanId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function rejectArtisanVerificationApi(artisanId, data) {
+  return await apiRequest(`/admin/support/artisan-verification/${artisanId}/reject`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function markArtisanSuspiciousApi(artisanId, data) {
+  return await apiRequest(`/admin/support/artisan-verification/${artisanId}/mark-suspicious`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function restoreArtisanAccountApi(artisanId, data = {}) {
+  return await apiRequest(`/admin/support/artisan-verification/${artisanId}/restore`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function reviewArtisanAppealApi(artisanId, data) {
+  return await apiRequest(`/admin/support/artisan-verification/${artisanId}/appeal-review`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deactivateArtisanAccountApi(artisanId, data) {
+  return await apiRequest(`/admin/support/artisan-verification/${artisanId}/deactivate`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}

@@ -57,6 +57,10 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    skills: {
+      type: [String],
+      default: [],
+    },
     experience: {
       type: String,
       trim: true,
@@ -65,6 +69,10 @@ const userSchema = new mongoose.Schema(
     hourlyRate: {
       type: Number,
       default: 0,
+    },
+    languages: {
+      type: [String],
+      default: ["English", "Hindi", "Punjabi"],
     },
     // Expert specific fields
     expertise: {
@@ -95,7 +103,65 @@ const userSchema = new mongoose.Schema(
     isVerified: {
       type: Boolean,
       default: false,
+      index: true,
     },
+    verificationStatus: {
+      type: String,
+      enum: ["Not Submitted", "Pending", "Verified", "Rejected", "Under Review"],
+      default: "Not Submitted",
+      index: true,
+    },
+    accountStatus: {
+      type: String,
+      enum: ["Active", "Suspended", "Deactivated"],
+      default: "Active",
+      index: true,
+    },
+    aadhaarVerification: {
+      frontImage: { type: String, default: "" },
+      backImage: { type: String, default: "" },
+      frontOriginalName: { type: String, default: "" },
+      backOriginalName: { type: String, default: "" },
+      submittedAt: { type: Date, default: null },
+      reviewedAt: { type: Date, default: null },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      reviewedByName: { type: String, default: "" },
+      rejectionReason: { type: String, default: "" },
+      suspensionReason: { type: String, default: "" },
+      suspendedAt: { type: Date, default: null },
+      internalNotes: { type: String, default: "" },
+      consentGiven: { type: Boolean, default: false },
+      consentTimestamp: { type: Date, default: null },
+    },
+    appeal: {
+      status: {
+        type: String,
+        enum: ["None", "Submitted", "Under Review", "Approved", "Rejected"],
+        default: "None",
+        index: true,
+      },
+      explanation: { type: String, default: "" },
+      submittedAt: { type: Date, default: null },
+      reviewedAt: { type: Date, default: null },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      reviewedByName: { type: String, default: "" },
+      adminResponse: { type: String, default: "" },
+    },
+    moderationAuditLogs: [
+      {
+        action: { type: String, required: true },
+        performedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        performedByName: { type: String, default: "System" },
+        performedByRole: { type: String, default: "system" },
+        reason: { type: String, default: "" },
+        internalNotes: { type: String, default: "" },
+        previousVerificationStatus: { type: String },
+        newVerificationStatus: { type: String },
+        previousAccountStatus: { type: String },
+        newAccountStatus: { type: String },
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
     isActive: {
       type: Boolean,
       default: true,
@@ -140,7 +206,38 @@ userSchema.methods.generateAccessToken = function () {
 };
 
 // Transform to safe user object for responses
-userSchema.methods.toSafeObject = function () {
+userSchema.methods.toSafeObject = function (isAdmin = false) {
+  const vStatus = this.verificationStatus || (this.isVerified ? "Verified" : "Not Submitted");
+  const aStatus = this.accountStatus || (this.isActive === false ? "Deactivated" : "Active");
+
+  const safeAadhaar = this.aadhaarVerification
+    ? {
+        hasFrontImage: Boolean(this.aadhaarVerification.frontImage),
+        hasBackImage: Boolean(this.aadhaarVerification.backImage),
+        frontImage: Boolean(this.aadhaarVerification.frontImage),
+        backImage: Boolean(this.aadhaarVerification.backImage),
+        isSubmitted:
+          Boolean(this.aadhaarVerification.frontImage && this.aadhaarVerification.backImage) ||
+          Boolean(this.aadhaarVerification.isSubmitted) ||
+          Boolean(this.aadhaarVerification.submittedAt),
+        submittedAt: this.aadhaarVerification.submittedAt || null,
+        reviewedAt: this.aadhaarVerification.reviewedAt || null,
+        reviewedByName: this.aadhaarVerification.reviewedByName || "",
+        rejectionReason: this.aadhaarVerification.rejectionReason || "",
+        suspensionReason: this.aadhaarVerification.suspensionReason || "",
+        suspendedAt: this.aadhaarVerification.suspendedAt || null,
+        consentGiven: Boolean(this.aadhaarVerification.consentGiven),
+        consentTimestamp: this.aadhaarVerification.consentTimestamp || null,
+        ...(isAdmin
+          ? {
+              internalNotes: this.aadhaarVerification.internalNotes || "",
+              frontOriginalName: this.aadhaarVerification.frontOriginalName || "",
+              backOriginalName: this.aadhaarVerification.backOriginalName || "",
+            }
+          : {}),
+      }
+    : null;
+
   return {
     id: this._id.toString(),
     _id: this._id.toString(),
@@ -152,14 +249,21 @@ userSchema.methods.toSafeObject = function () {
     state: this.state || "",
     bio: this.bio || "",
     artCategory: this.artCategory || "",
+    skills: this.skills || (this.artCategory ? [this.artCategory] : []),
     experience: this.experience || "",
     hourlyRate: this.hourlyRate || 0,
+    languages: this.languages || ["English", "Hindi", "Punjabi"],
     expertise: this.expertise || "",
     contactName: this.contactName || "",
     industry: this.industry || "",
     companyAddress: this.companyAddress || "",
     avatar: this.avatar || "",
-    isVerified: this.isVerified,
+    isVerified: vStatus === "Verified",
+    verificationStatus: vStatus,
+    accountStatus: aStatus,
+    aadhaarVerification: safeAadhaar,
+    appeal: this.appeal || { status: "None" },
+    ...(isAdmin ? { moderationAuditLogs: this.moderationAuditLogs || [] } : {}),
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,
   };

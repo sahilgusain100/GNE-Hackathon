@@ -1,7 +1,7 @@
 /**
  * SkillBridge Voice Assistant Service
  * Natural language intent extraction & slot filling for Artisan activities
- * Supports English, Hindi, Hinglish, and Punjabi.
+ * Supports English, Hindi, Hinglish, and Punjabi (Gurmukhi & Romanized).
  */
 
 const getGeminiKey = () => process.env.GEMINI_API_KEY || process.env.GEMINI_TTS_API_KEY || "";
@@ -9,20 +9,294 @@ const getGroqKey = () => process.env.GROQ_API_KEY || "";
 const getLlmProvider = () => (process.env.LLM_PROVIDER || "gemini").toLowerCase();
 
 /**
- * System prompt defining all artisan actions and extraction schema
+ * Detect language reliably across Gurmukhi, Devanagari, and Latin transliteration
+ */
+export function detectSpokenLanguage(message = "") {
+  const raw = String(message).trim();
+  if (!raw) return "en";
+
+  // 1. Script-based detection
+  if (/[\u0A00-\u0A7F]/.test(raw)) return "pa"; // Gurmukhi
+  if (/[\u0900-\u097F]/.test(raw)) return "hi"; // Devanagari
+
+  const lower = raw.toLowerCase();
+
+  // 2. English phrases check
+  const englishMarkers = [
+    "i am", "i live", "years of", "experience", "tailor", "tailoring",
+    "stitching", "embroidery", "what is", "missing in", "show my",
+    "create my", "my name is", "add", "to my", "from", "how many", "profile"
+  ];
+  let enScore = 0;
+  for (const m of englishMarkers) {
+    if (lower.includes(m)) enScore += 3;
+  }
+
+  // 3. Punjabi Romanized markers
+  const punjabiMarkers = [
+    "kamm", "kardi", "karda", "karde", "kardi aan", "karda aan", "tajrba", "tajarba",
+    "mera na", "mera naam", "sat sri akal", "satsriakal", "pind", "ton haan", "vich",
+    "phulkari", "fulkari", "kadhai", "tuhada", "tussi", "dasso", "daso", "jodo", "hatao",
+    "bano", "karobar", "kamai", "paise", "aande", "chahida", "chahidi", "kidan"
+  ];
+
+  // 4. Hindi Romanized markers
+  const hindiMarkers = [
+    "karti hoon", "karta hoon", "anubhav", "saal", "sal", "gaon", "shahar",
+    "namaste", "pranam", "karo", "batao", "meri kamai", "kitna", "kitne",
+    "kaise", "kya", "chahiye", "karobar", "sahi", "nahi", "mujhe"
+  ];
+
+  let paScore = 0;
+  for (const m of punjabiMarkers) {
+    if (lower.includes(m)) paScore += 2;
+  }
+
+  let hiScore = 0;
+  for (const m of hindiMarkers) {
+    if (lower.includes(m)) hiScore += 2;
+  }
+
+  if (enScore > paScore && enScore > hiScore) return "en";
+  if (paScore > hiScore && paScore >= 2) return "pa";
+  if (hiScore > paScore && hiScore >= 2) return "hi";
+
+  return "en";
+}
+
+/**
+ * Normalizes number words to digits (English, Hindi, Punjabi)
+ */
+function parseSpokenNumber(text = "") {
+  const numMap = {
+    // English
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    // Hindi
+    एक: 1, दो: 2, तीन: 3, चार: 4, पाँच: 5, पांच: 5, छह: 6, सात: 7, आठ: 8, नौ: 9, दस: 10,
+    ek: 1, do: 2, teen: 3, chaar: 4, paanch: 5, panch: 5, chhah: 6, saat: 7, aath: 8, nau: 9, das: 10,
+    // Punjabi
+    ਇੱਕ: 1, ਦੋ: 2, ਤਿੰਨ: 3, ਚਾਰ: 4, ਪੰਜ: 5, ਛੇ: 6, ਸੱਤ: 7, ਅੱਠ: 8, ਨੌਂ: 9, ਦਸ: 10,
+    ikk: 1, panj: 5, tin: 3, sath: 7, ath: 8
+  };
+
+  const digits = text.match(/\d+/);
+  if (digits) return Number(digits[0]);
+
+  const words = text.toLowerCase().split(/\s+/);
+  for (const w of words) {
+    if (numMap[w] !== undefined) return numMap[w];
+  }
+  return null;
+}
+
+/**
+ * Extract Experience from speech in English, Hindi, or Punjabi
+ */
+export function extractExperience(text = "") {
+  const lower = text.toLowerCase();
+
+  // Pattern 1: Number + years / sal / vare
+  // e.g. "five years", "5 years", "पाँच साल", "ਪੰਜ ਸਾਲ", "5 years of experience"
+  const expMatch = text.match(
+    /(?:(\d+|one|two|three|four|five|six|seven|eight|nine|ten|ਇੱਕ|ਦੋ|ਤਿੰਨ|ਚਾਰ|ਪੰਜ|ਛੇ|ਸੱਤ|ਅੱਠ|ਨੌਂ|ਦਸ|एक|दो|तीन|चार|पाँच|पांच|छह|सात|आठ|नौ|दस|panj|paanch|ek|do)\s*(?:years?|yrs?|yr|ਸਾਲ|ਵਰੇ|साल|वर्ष|महीने|ਮਹੀਨੇ|months?))/i
+  );
+
+  if (expMatch) {
+    const rawNum = expMatch[1];
+    const parsedNum = parseSpokenNumber(rawNum) || rawNum;
+    return `${parsedNum} years`;
+  }
+
+  // Fallback: check if just contains experience keyword with number
+  if (lower.includes("experience") || text.includes("ਤਜਰਬਾ") || text.includes("अनुभव") || lower.includes("tajrba") || lower.includes("anubhav")) {
+    const num = parseSpokenNumber(text);
+    if (num) return `${num} years`;
+    return "Experienced";
+  }
+
+  return "";
+}
+
+/**
+ * Extract Skills and Craft Category from speech
+ */
+export function extractSkills(text = "") {
+  const lower = text.toLowerCase();
+  const raw = text;
+  const skills = [];
+
+  // Tailoring / Stitching
+  if (
+    lower.includes("tailor") || lower.includes("tailoring") || lower.includes("stitching") ||
+    lower.includes("seamstress") || lower.includes("silai") ||
+    raw.includes("ਸਿਲਾਈ") || raw.includes("ਦਰਜ਼ੀ") ||
+    raw.includes("सिलाई") || raw.includes("दर्जी")
+  ) {
+    skills.push("Tailoring");
+  }
+
+  // Embroidery / Phulkari
+  if (
+    lower.includes("phulkari") || lower.includes("fulkari") || lower.includes("embroidery") ||
+    lower.includes("needlework") || lower.includes("kadhai") ||
+    raw.includes("ਫੁਲਕਾਰੀ") || raw.includes("ਕਢਾਈ") ||
+    raw.includes("फुलकारी") || raw.includes("कढ़ाई") || raw.includes("कशीदाकारी")
+  ) {
+    skills.push("Embroidery & Phulkari");
+  }
+
+  // Pottery / Ceramics
+  if (
+    lower.includes("pottery") || lower.includes("ceramic") || lower.includes("clay") ||
+    lower.includes("mitti") || lower.includes("ghade") ||
+    raw.includes("ਮਿੱਟੀ") || raw.includes("ਘੜੇ") || raw.includes("ਕੁੰਭਾਰ") ||
+    raw.includes("मिट्टी") || raw.includes("कुम्हार") || raw.includes("पॉटरी")
+  ) {
+    skills.push("Pottery & Ceramics");
+  }
+
+  // Weaving / Handloom
+  if (
+    lower.includes("weaving") || lower.includes("handloom") || lower.includes("textile") ||
+    lower.includes("khaddi") || lower.includes("bunti") ||
+    raw.includes("ਬੁਣਤੀ") || raw.includes("ਖੱਡੀ") || raw.includes("ਦਰੀਆਂ") ||
+    raw.includes("बुनाई") || raw.includes("हथकरघा") || raw.includes("हैंडलूम")
+  ) {
+    skills.push("Weaving & Handloom");
+  }
+
+  // Woodwork / Carpentry
+  if (
+    lower.includes("wood") || lower.includes("carpentry") || lower.includes("furniture") ||
+    lower.includes("lakdi") || lower.includes("tarkhan") ||
+    raw.includes("ਲੱਕੜ") || raw.includes("ਤਰਖਾਣ") ||
+    raw.includes("लकड़ी") || raw.includes("बढ़ई")
+  ) {
+    skills.push("Woodwork");
+  }
+
+  // Painting / Art
+  if (
+    lower.includes("paint") || lower.includes("art") || lower.includes("chitra") ||
+    raw.includes("ਚਿੱਤਰਕਾਰੀ") || raw.includes("ਪੇਂਟਿੰਗ") ||
+    raw.includes("चित्रकला") || raw.includes("पेंटिंग")
+  ) {
+    skills.push("Traditional Art & Painting");
+  }
+
+  // Jewelry / Beadwork
+  if (
+    lower.includes("jewelry") || lower.includes("jewellery") || lower.includes("beads") || lower.includes("gehne") ||
+    raw.includes("ਗਹਿਣੇ") || raw.includes("ਜ਼ੇਵਰ") ||
+    raw.includes("गहने") || raw.includes("आभूषण")
+  ) {
+    skills.push("Handmade Jewelry");
+  }
+
+  return skills;
+}
+
+/**
+ * Extract Location / Village / City
+ */
+export function extractLocation(text = "") {
+  const raw = text;
+  const lower = text.toLowerCase();
+
+  // Known artisan hubs in Punjab and North India
+  const cities = [
+    { key: "Amritsar", variants: ["amritsar", "ਅੰਮ੍ਰਿਤਸਰ", "ਅੰਮ੍ਰਿਤਸਰੋਂ", "अमृतसर"] },
+    { key: "Patiala", variants: ["patiala", "ਪਟਿਆਲਾ", "ਪਟਿਆਲੇ", "पटियाला"] },
+    { key: "Ludhiana", variants: ["ludhiana", "ਲੁਧਿਆਣਾ", "ਲੁਧਿਆਣੇ", "लुधियाना"] },
+    { key: "Jalandhar", variants: ["jalandhar", "ਜਲੰਧਰ", "ਜਲੰਧਰੋਂ", "जालंधर"] },
+    { key: "Bathinda", variants: ["bathinda", "ਬਠਿੰਡਾ", "ਬਠਿੰਡੇ", "बठिंडा"] },
+    { key: "Hoshiarpur", variants: ["hoshiarpur", "ਹੁਸ਼ਿਆਰਪੁਰ", "होशियारपुर"] },
+    { key: "Mohali", variants: ["mohali", "ਮੋਹਾਲੀ", "मोहाली"] },
+    { key: "Chandigarh", variants: ["chandigarh", "ਚੰਡੀਗੜ੍ਹ", "चंडीगढ़"] },
+    { key: "Jaipur", variants: ["jaipur", "ਜੈਪੁਰ", "जयपुर"] },
+    { key: "Delhi", variants: ["delhi", "ਦਿੱਲੀ", "दिल्ली"] },
+    { key: "Sultanpur", variants: ["sultanpur", "ਸੁਲਤਾਨਪੁਰ", "सुल्तानपुर"] },
+  ];
+
+  for (const c of cities) {
+    for (const v of c.variants) {
+      if (lower.includes(v.toLowerCase()) || raw.includes(v)) {
+        return c.key;
+      }
+    }
+  }
+
+  // Regex patterns: "live in X", "from X", "X ton haan", "X mein rehti hoon"
+  const m =
+    raw.match(/(?:from|in|live in|village|city)\s+([A-Za-z]+)/i) ||
+    raw.match(/([A-Za-z\u0A00-\u0A7F\u0900-\u097F]+)\s*(?:ਤੋਂ|ਤੋਂ ਹਾਂ|ਵਿੱਚ|ਵਿਚ|ਤੋਂ ਆਂ)/) ||
+    raw.match(/([A-Za-z\u0A00-\u0A7F\u0900-\u097F]+)\s*(?:से हूँ|से|में रहती हूँ|में रहता हूँ)/);
+
+  if (m && m[1] && m[1].length > 2) {
+    const candidate = m[1].trim();
+    if (!["tailor", "silai", "kamm", "main", "mera", "naam"].includes(candidate.toLowerCase())) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
+/**
+ * Extract Name
+ */
+export function extractName(text = "") {
+  const raw = text;
+  const lower = text.toLowerCase();
+
+  // If text is primarily about craft/experience, don't mistakenly treat profession/verbs as a name
+  if (
+    lower.includes("tailor") || lower.includes("silai") || raw.includes("ਸਿਲਾਈ") ||
+    raw.includes("सिलाई") || lower.includes("experience") || raw.includes("ਤਜਰਬਾ") || raw.includes("अनुभव")
+  ) {
+    // Only extract name if explicitly says "my name is X" / "mera naam X"
+    const explicit =
+      raw.match(/(?:my name is|call me)\s+([A-Za-z\s]+?)(?:,|\.|\sand\s|$)/i) ||
+      raw.match(/(?:ਮੇਰਾ ਨਾਂ|ਮੇਰਾ ਨਾਮ)\s+([A-Za-z\u0A00-\u0A7F\s]+?)(?:ਹੈ|ਹਾਂ|ਜੀ|$)/) ||
+      raw.match(/(?:मेरा नाम)\s+([A-Za-z\u0900-\u097F\s]+?)(?:हूँ|है|जी|$)/);
+
+    if (explicit && explicit[1]) {
+      const cleaned = explicit[1].trim().replace(/\s+(hai|hoon|haan|ji)$/i, "");
+      if (cleaned.length >= 2) return cleaned;
+    }
+    return "";
+  }
+
+  const nameMatch =
+    raw.match(/(?:my name is|i am|call me)\s+([A-Za-z\s]+?)(?:,|\.|\sand\s|$)/i) ||
+    raw.match(/(?:ਮੇਰਾ ਨਾਂ|ਮੇਰਾ ਨਾਮ|ਮੈਂ ਹਾਂ)\s+([A-Za-z\u0A00-\u0A7F\s]+?)(?:ਹੈ|ਹਾਂ|ਜੀ|$)/) ||
+    raw.match(/(?:मेरा नाम|मैं)\s+([A-Za-z\u0900-\u097F\s]+?)(?:हूँ|है|जी|$)/);
+
+  if (nameMatch && nameMatch[1]) {
+    const cleaned = nameMatch[1].trim().replace(/\s+(hai|hoon|haan|ji)$/i, "");
+    if (cleaned.length >= 2 && !["tailor", "silai", "artisan", "live", "from"].includes(cleaned.toLowerCase())) {
+      return cleaned;
+    }
+  }
+
+  return "";
+}
+
+/**
+ * System prompt defining all artisan actions and extraction schema for LLM
  */
 function buildAssistantSystemPrompt(artisanContext = {}, userLanguage = "pa") {
   return `You are SkillBridge's AI Voice Assistant for Indian Artisans.
-The artisan is currently logged in.
 Artisan Name: "${artisanContext.name || "Artisan"}"
 Artisan ID: "${artisanContext.id || ""}"
 Shop Name: "${artisanContext.shopName || ""}"
 Active Requested Language: "${userLanguage}" (pa = Punjabi in Gurmukhi, hi = Hindi in Devanagari, en = English)
 
-Your job is to understand natural spoken requests in English, Hindi, Hinglish (Hindi written in English/Latin script), or Punjabi (Gurmukhi or Romanized).
-Determine the artisan's INTENT and extract any ENTITIES/PARAMETERS.
+Understand natural spoken requests in English, Hindi, Hinglish, or Punjabi (Gurmukhi or Romanized).
+Determine the artisan's INTENT and extract any ENTITIES.
 
 SUPPORTED INTENTS:
+<<<<<<< HEAD
 1. START_GUIDED_SHOP: Guided shop creation workflow ("Create my shop", "Meri dukan banao", "ਮੇਰੀ ਦੁਕਾਨ ਬਣਾਓ", "दुकान बनानी है", "Open my shop", "Setup shop")
 2. START_GUIDED_PRODUCT: Guided product creation workflow ("Add a product", "Naya product jodna hai", "ਉਤਪਾਦ ਜੋੜੋ", "उत्पाद जोड़ें", "List a product", "Add craft")
 3. ASK_ME_ANYTHING: General Q&A / Platform queries ("Ask me anything", "Kuch bhi poocho", "ਕੁਝ ਵੀ ਪੁੱਛੋ", "कुछ भी पूछें", "What is SkillBridge", "How do payments work?")
@@ -65,20 +339,68 @@ SUPPORTED INTENTS:
 28. SIGNUP_HELP: Help registering or starting voice registration ("Register as artisan", "Voice signup", "ਰਜਿਸਟਰ ਕਰੋ", "Account banana hai") - Entities: { role?: "artisan" | "customer" | "expert" | "industry", isVoice?: boolean }
 29. NAVIGATE: Navigate across platform ("Go to marketplace", "Craft courses", "About us", "ਮਾਰਕੀਟਪਲੇਸ") - Entities: { destination?: "marketplace" | "courses" | "about" | "artisans" }
 30. UNKNOWN: Unrelated or general conversation.
+=======
+1. PROFILE_UPDATE: State personal info, craft, skills, experience, city, or phone
+   Examples:
+   - "I am a tailor with five years of experience"
+   - "मैं सिलाई का काम करती हूँ और मुझे पाँच साल का अनुभव है"
+   - "ਮੈਂ ਸਿਲਾਈ ਦਾ ਕੰਮ ਕਰਦੀ ਹਾਂ ਅਤੇ ਮੈਨੂੰ ਪੰਜ ਸਾਲ ਦਾ ਤਜਰਬਾ ਹੈ"
+   - "Change name to Sunita", "I live in Patiala", "Update phone to 9876543210"
+   Entities: { name?, phone?, city?, state?, skills: string[], artCategory?, experience?, bio? }
+>>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
 
-RETURN JSON SCHEMA ONLY:
+2. PROFILE_GET: View saved profile
+   Examples: "Show my profile", "Mera profile dikhao", "ਮੇਰੀ ਪ੍ਰੋਫਾਈਲ ਦਿਖਾਓ", "What are my details?"
+
+3. PROFILE_COMPLETION_CHECK: Check missing fields or complete profile
+   Examples: "What is missing in my profile?", "Complete my profile", "ਮੇਰੀ ਪ੍ਰੋਫਾਈਲ ਵਿੱਚ ਕੀ ਅਧੂਰਾ ਹੈ?", "ਪ੍ਰੋਫਾਈਲ ਪੂਰੀ ਕਰੋ"
+
+4. SKILL_ADD: Add a specific craft/skill
+   Examples: "Add embroidery to my skills", "ਕਢਾਈ ਦਾ ਹੁਨਰ ਜੋੜੋ", "कढ़ाई का काम जोड़ो"
+   Entities: { skill: string }
+
+5. SKILL_REMOVE: Remove a specific craft/skill
+   Examples: "Remove weaving", "ਬੁਣਤੀ ਹਟਾਓ", "बुनाई हटाओ"
+   Entities: { skill: string }
+
+6. PROFILE_CREATE: Create new artisan profile
+   Examples: "Create my artisan profile", "ਨਵੀਂ ਦਸਤਕਾਰ ਪ੍ਰੋਫਾਈਲ ਬਣਾਓ", "कारीगर प्रोफाइल बनाओ"
+
+7. PRODUCT_LIST: View products ("Show my products", "Mera saman dikhao")
+8. PRODUCT_ADD: Add a product ("Add a new product", "Sell wooden chair for 2500")
+   Entities: { title?, category?, price?, stock?, description? }
+9. PRODUCT_UPDATE: Update product price or stock ("Change price of chair to 2500")
+   Entities: { title?, price?, stock? }
+10. PRODUCT_DELETE: Delete product ("Delete wooden chair")
+11. ORDER_LIST: View orders ("Show my orders", "Pending orders")
+12. ORDER_DETAILS: Order details ("Show order #1234")
+13. ORDER_ACCEPT: Accept order ("Accept order #1234")
+14. ORDER_COMPLETE: Complete order ("Mark order #1234 as completed")
+15. PAYMENT_SUMMARY: Earnings ("How much have I earned?", "Meri kamai", "ਕਮਾਈ")
+16. PAYMENT_PENDING: Pending payouts ("Pending payments")
+17. DASHBOARD_SUMMARY: Business overview ("Summary of my business")
+18. FIND_INDUSTRIALISTS: Industrial projects ("Find industrialists", "ਉਦਯੋਗ ਪ੍ਰੋਜੈਕਟ")
+19. GREETING: Greetings ("Hello", "Sat Sri Akal", "Namaste", "ਕਿਵੇਂ ਹੋ")
+20. ABOUT_PLATFORM: About SkillBridge ("What is SkillBridge?", "ਸਕਿੱਲਬ੍ਰਿਜ ਕੀ ਹੈ?")
+21. SUPPORT_HELP: Support & disputes ("Help with dispute", "Refund policy", "ਮਦਦ")
+22. AFFIRMATION: Confirmation ("Yes", "Haan", "Confirm", "ਹਾਂ", "हाँ")
+23. NEGATION: Rejection ("No", "Cancel", "ਰੱਦ ਕਰੋ", "नहीं")
+24. HELP: Help on how to use voice assistant
+25. UNKNOWN: Unrelated request
+
+OUTPUT JSON ONLY:
 {
   "intent": "INTENT_NAME",
   "entities": {
+    "name": "...",
+    "skills": ["Tailoring"],
+    "experience": "5 years",
+    "city": "Patiala",
+    "phone": "9876543210",
+    "skill": "Tailoring",
     "title": "...",
-    "category": "...",
     "price": 2500,
-    "stock": 10,
-    "phone": "...",
-    "orderNumber": "...",
-    "orderId": "...",
-    "status": "...",
-    "query": "..."
+    "stock": 10
   },
   "detectedLanguage": "pa" | "hi" | "en",
   "confidence": 0.95
@@ -86,7 +408,7 @@ RETURN JSON SCHEMA ONLY:
 }
 
 /**
- * Call Gemini to parse intent
+ * Call Gemini LLM for intent extraction
  */
 async function callGeminiForIntent(message, artisanContext = {}, userLanguage = "pa") {
   const geminiKey = getGeminiKey();
@@ -120,6 +442,7 @@ Extract JSON only.`;
 }
 
 /**
+<<<<<<< HEAD
  * Call Groq to parse intent
  */
 async function callGroqForIntent(message, artisanContext = {}, userLanguage = "pa") {
@@ -156,44 +479,45 @@ async function callGroqForIntent(message, artisanContext = {}, userLanguage = "p
  */
 export function deterministicIntentMatcher(message = "", userLanguage = "pa") {
   const raw = message.trim();
+=======
+ * Comprehensive Deterministic Intent Matcher
+ * Highly accurate across English, Hindi, and Punjabi
+ */
+export function deterministicIntentMatcher(message = "") {
+  const raw = String(message).trim();
+>>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
   const lower = raw.toLowerCase();
+  const detectedLanguage = detectSpokenLanguage(raw);
 
+<<<<<<< HEAD
   // Language detection: prioritize explicit script, fallback to userLanguage
   const hasGurmukhi = /[\u0A00-\u0A7F]/.test(raw);
   const hasDevanagari = /[\u0900-\u097F]/.test(raw);
   const detectedLanguage = hasGurmukhi ? "pa" : hasDevanagari ? "hi" : (userLanguage || "en");
 
   // Check Affirmation / Negation
+=======
+  // 1. AFFIRMATION & NEGATION
+>>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
   if (
-    /^(yes|yeah|yep|haan|ha|hanji|sahi hai|theek hai|confirm|bilkul|kar do|add kar do|delete kar do|yes please|ਹਾਂ|ਸਹੀ ਹੈ|ਠੀਕ ਹੈ|हाँ|सही है)$/i.test(
-      lower
-    ) ||
-    lower.startsWith("yes") ||
-    lower.startsWith("haan") ||
-    lower.startsWith("hanji") ||
-    raw.startsWith("ਹਾਂ") ||
-    raw.startsWith("हाँ") ||
-    raw.includes("ਸਹੀ ਹੈ") ||
-    raw.includes("ਠੀਕ ਹੈ") ||
-    raw.includes("सही है")
+    lower === "yes" || lower === "yeah" || lower === "yup" || lower === "ok" || lower === "okay" ||
+    lower === "haan" || lower === "haanji" || lower === "sahi hai" || lower === "theek hai" ||
+    lower === "confirm" || raw === "ਹਾਂ" || raw === "ਹਾਂਜੀ" || raw === "ਠੀਕ ਹੈ" ||
+    raw === "हाँ" || raw === "हाँजी" || raw === "सही है" || raw === "ठीक है"
   ) {
-    return { intent: "AFFIRMATION", entities: {}, detectedLanguage, confidence: 0.99 };
+    return { intent: "AFFIRMATION", entities: {}, detectedLanguage, confidence: 0.98 };
   }
 
   if (
-    /^(no|nope|cancel|nahi|na|mat karo|rehne do|cancel karo|dont|don't|ਰੱਦ ਕਰੋ|ਨਹੀਂ|नहीं|रद्द करें)$/i.test(
-      lower
-    ) ||
-    lower.startsWith("no ") ||
-    lower.startsWith("nahi") ||
-    raw.startsWith("ਨਹੀਂ") ||
-    raw.startsWith("नहीं") ||
-    raw.includes("ਰੱਦ") ||
-    raw.includes("रद्द")
+    lower === "no" || lower === "nope" || lower === "cancel" || lower === "stop" ||
+    lower === "nahi" || lower === "nahin" || lower === "mat karo" ||
+    raw === "ਨਹੀਂ" || raw === "ਰੱਦ ਕਰੋ" || raw === "ਰੋਕੋ" ||
+    raw === "नहीं" || raw === "रद्द करो" || raw === "रोको"
   ) {
-    return { intent: "NEGATION", entities: {}, detectedLanguage, confidence: 0.99 };
+    return { intent: "NEGATION", entities: {}, detectedLanguage, confidence: 0.98 };
   }
 
+<<<<<<< HEAD
   // 1. GUIDED WORKFLOW OPTIONS
   if (
     lower.includes("create my shop") ||
@@ -248,495 +572,249 @@ export function deterministicIntentMatcher(message = "", userLanguage = "pa") {
   }
 
   // GREETINGS & SOCIAL INTENTS
+=======
+  // 2. GREETINGS
+>>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
   if (
-    /^(hi|hello|hey|hey there|namaste|namaskar|sat sri akal|satsriakal|sasrikal|kem cho|adaab|good morning|good afternoon|good evening|ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ|ਸਤਿ ਸ਼੍ਰੀ ਅਕਾਲ|ਨਮਸਤੇ|ਹੈਲੋ|नमस्ते|नमस्कार|हेलो)$/i.test(
-      lower
-    ) ||
-    lower.startsWith("hi ") ||
-    lower.startsWith("hello") ||
-    lower.startsWith("hey ") ||
-    lower.includes("sat sri akal") ||
-    lower.includes("satsriakal") ||
-    lower.includes("namaste") ||
-    raw.includes("ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ") ||
-    raw.includes("ਸਤਿ ਸ਼੍ਰੀ ਅਕਾਲ") ||
-    raw.includes("ਨਮਸਤੇ") ||
-    raw.includes("नमस्ते")
+    lower.startsWith("hello") || lower.startsWith("hi") || lower.startsWith("hey") ||
+    lower.includes("sat sri akal") || lower.includes("satsriakal") ||
+    lower.includes("namaste") || lower.includes("pranam") || lower.includes("kive") ||
+    raw.includes("ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ") || raw.includes("ਨਮਸਤੇ") || raw.includes("ਕਿਵੇਂ ਹੋ") ||
+    raw.includes("नमस्ते") || raw.includes("प्रणाम") || raw.includes("कैसे हो")
   ) {
     return { intent: "GREETING", entities: {}, detectedLanguage, confidence: 0.98 };
   }
 
-  // ABOUT SKILLBRIDGE & BOT CAPABILITIES
+  // 3. ABOUT PLATFORM / CAPABILITIES
   if (
-    lower.includes("what is skillbridge") ||
-    lower.includes("what can you do") ||
-    lower.includes("who are you") ||
-    lower.includes("what are you") ||
-    lower.includes("about skillbridge") ||
-    lower.includes("how does this work") ||
-    lower.includes("what does this app do") ||
-    lower.includes("how to use") ||
-    lower.includes("tell me about") ||
-    raw.includes("ਸਕਿੱਲਬ੍ਰਿਜ ਕੀ ਹੈ") ||
-    raw.includes("ਕੀ ਕਰ ਸਕਦੇ ਹੋ") ||
-    raw.includes("ਕੌਣ ਹੋ") ||
-    raw.includes("ਤੁਸੀਂ ਕੌਣ ਹੋ") ||
-    raw.includes("ਕੀ ਹੈ ਇਹ") ||
-    raw.includes("स्किलब्रिज क्या है") ||
-    raw.includes("तुम कौन हो") ||
-    raw.includes("क्या कर सकते हो")
+    lower.includes("what is skillbridge") || lower.includes("who are you") ||
+    lower.includes("what can you do") || lower.includes("about platform") ||
+    raw.includes("ਸਕਿੱਲਬ੍ਰਿਜ ਕੀ ਹੈ") || raw.includes("ਤੁਸੀਂ ਕੌਣ ਹੋ") || raw.includes("ਕੀ ਕਰ ਸਕਦੇ ਹੋ") ||
+    raw.includes("स्किलब्रिज क्या है") || raw.includes("तुम कौन हो") || raw.includes("क्या कर सकते हो")
   ) {
-    return { intent: "ABOUT_PLATFORM", entities: {}, detectedLanguage, confidence: 0.96 };
+    return { intent: "ABOUT_PLATFORM", entities: {}, detectedLanguage, confidence: 0.95 };
   }
 
-  // SUPPORT, DISPUTES, REFUNDS & COMPLAINTS
+  // 4. SUPPORT & DISPUTES
   if (
-    lower.includes("support") ||
-    lower.includes("customer care") ||
-    lower.includes("helpdesk") ||
-    lower.includes("dispute") ||
-    lower.includes("refund") ||
-    lower.includes("return") ||
-    lower.includes("damaged") ||
-    lower.includes("complaint") ||
-    lower.includes("defective") ||
-    lower.includes("wrong product") ||
-    lower.includes("shikayat") ||
-    raw.includes("ਸਹਾਇਤਾ") ||
-    raw.includes("ਸ਼ਿਕਾਇਤ") ||
-    raw.includes("ਰਿਫੰਡ") ||
-    raw.includes("ਵਾਪਸੀ") ||
-    raw.includes("ਨੁਕਸਾਨ") ||
-    raw.includes("शिकायत") ||
-    raw.includes("रिफंड") ||
-    raw.includes("सहायता")
+    lower.includes("dispute") || lower.includes("refund") || lower.includes("return policy") ||
+    lower.includes("support center") || lower.includes("customer support") ||
+    raw.includes("ਰਿਫੰਡ") || raw.includes("ਵਾਪਸੀ") || raw.includes("ਸਹਾਇਤਾ ਕੇਂਦਰ") ||
+    raw.includes("रिफंड") || raw.includes("वापसी") || raw.includes("शिकायत")
   ) {
     return { intent: "SUPPORT_HELP", entities: {}, detectedLanguage, confidence: 0.95 };
   }
 
-  // ORDER TRACKING FOR CUSTOMERS & ARTISANS
+  // 5. PROFILE ACTIONS & STATEMENTS (e.g. "I am a tailor with five years of experience")
+  // Check for skill + experience statement
+  const detectedSkills = extractSkills(raw);
+  const detectedExperience = extractExperience(raw);
+  const detectedLocation = extractLocation(raw);
+  const detectedName = extractName(raw);
+
+  // If user says "Add embroidery to my skills" / "ਕਢਾਈ ਜੋੜੋ"
   if (
-    lower.includes("track") ||
-    lower.includes("tracking") ||
-    lower.includes("where is my order") ||
-    lower.includes("order status") ||
-    lower.includes("delivery status") ||
-    lower.includes("order kahan") ||
-    lower.includes("parcel kahan") ||
-    raw.includes("ਟ੍ਰੈਕ") ||
-    raw.includes("ਕਿੱਥੇ ਹੈ") ||
-    raw.includes("ਟਰੈਕ") ||
-    raw.includes("ट्रैक")
+    (lower.includes("add") || lower.includes("jodo") || raw.includes("ਜੋੜੋ") || raw.includes("जोड़ो")) &&
+    (lower.includes("skill") || raw.includes("ਹੁਨਰ") || raw.includes("हुनर") || detectedSkills.length > 0)
   ) {
-    const match = raw.match(/#?([a-zA-Z0-9_-]{5,})/);
+    const skillName = detectedSkills[0] || raw.replace(/(add|jodo|ਜੋੜੋ|जोड़ो|skill|to my skills|ਹੁਨਰ|हुनर)/gi, "").trim();
     return {
-      intent: "ORDER_TRACK",
-      entities: { orderNumber: match ? match[1] : "" },
+      intent: "SKILL_ADD",
+      entities: { skill: skillName },
       detectedLanguage,
       confidence: 0.95,
     };
   }
 
-  // PRODUCT SEARCH & MARKETPLACE DISCOVERY
+  // If user says "Remove weaving" / "ਬੁਣਤੀ ਹਟਾਓ"
   if (
-    lower.includes("show me products") ||
-    lower.includes("show products") ||
-    lower.includes("find products") ||
-    lower.includes("browse crafts") ||
-    lower.includes("explore products") ||
-    lower.includes("phulkari") ||
-    lower.includes("dupatta") ||
-    lower.includes("juti") ||
-    lower.includes("pottery") ||
-    lower.includes("shawl") ||
-    lower.includes("wood craft") ||
-    lower.includes("buy craft") ||
-    raw.includes("ਸਮਾਨ ਦਿਖਾਓ") ||
-    raw.includes("ਉਤਪਾਦ ਦਿਖਾਓ") ||
-    raw.includes("ਖਰੀਦਣਾ") ||
-    raw.includes("ਫੁਲਕਾਰੀ") ||
-    raw.includes("ਸਾਮਾਨ ਦਿਖਾਓ")
+    (lower.includes("remove") || lower.includes("hatao") || lower.includes("delete") || raw.includes("ਹਟਾਓ") || raw.includes("हटाओ")) &&
+    (lower.includes("skill") || raw.includes("ਹੁਨਰ") || raw.includes("हुनर") || detectedSkills.length > 0)
   ) {
+    const skillName = detectedSkills[0] || raw.replace(/(remove|hatao|delete|ਹਟਾਓ|हटाओ|skill|ਹੁਨਰ|हुनर)/gi, "").trim();
     return {
-      intent: "PRODUCT_SEARCH",
-      entities: { query: raw },
+      intent: "SKILL_REMOVE",
+      entities: { skill: skillName },
       detectedLanguage,
       confidence: 0.95,
     };
   }
 
-  // 1. LOGIN & SIGNUP (Checked first so 'Industry login' or 'Account banana' are recognized correctly)
+  // If user provides profile facts (e.g. tailor with 5 years experience, location, or name)
   if (
-    lower.includes("login") ||
-    lower.includes("log in") ||
-    lower.includes("sign in") ||
-    lower.includes("signin") ||
-    raw.includes("ਲੌਗਇਨ") ||
-    raw.includes("लॉगिन")
+    detectedSkills.length > 0 ||
+    detectedExperience ||
+    detectedName ||
+    (detectedLocation && (lower.includes("live") || raw.includes("ਰਹਿੰਦੀ") || raw.includes("ਤੋਂ") || raw.includes("रहती") || lower.includes("from") || lower.includes("in")))
   ) {
-    const role = lower.includes("artisan") || raw.includes("ਦਸਤਕਾਰ") || raw.includes("ਕਾਰੀਗਰ")
-      ? "artisan"
-      : lower.includes("industry") || lower.includes("factory") || raw.includes("ਉਦਯੋਗ")
-      ? "industry"
-      : lower.includes("expert") || raw.includes("ਮਾਹਿਰ")
-      ? "expert"
-      : "customer";
-
+    const phoneDigits = raw.replace(/\D/g, "");
     return {
-      intent: "LOGIN_HELP",
-      entities: { role },
-      detectedLanguage,
-      confidence: 0.95,
-    };
-  }
-
-  if (
-    lower.includes("register") ||
-    lower.includes("signup") ||
-    lower.includes("sign up") ||
-    lower.includes("account banana") ||
-    lower.includes("create account") ||
-    lower.includes("new account") ||
-    lower.includes("registration") ||
-    lower.includes("voice signup") ||
-    raw.includes("ਰਜਿਸਟਰ") ||
-    raw.includes("ਰਜਿਸਟ੍ਰੇਸ਼ਨ") ||
-    raw.includes("रजिस्टर")
-  ) {
-    const role = lower.includes("industry") || raw.includes("ਉਦਯੋਗ")
-      ? "industry"
-      : lower.includes("expert") || raw.includes("ਮਾਹਿਰ")
-      ? "expert"
-      : lower.includes("customer")
-      ? "customer"
-      : "artisan";
-
-    const isVoice = lower.includes("voice") || lower.includes("bol") || raw.includes("ਬੋਲ") || raw.includes("बोल");
-
-    return {
-      intent: "SIGNUP_HELP",
-      entities: { role, isVoice },
-      detectedLanguage,
-      confidence: 0.95,
-    };
-  }
-
-  // 2. NAVIGATION
-  if (
-    lower.includes("marketplace") ||
-    lower.includes("shop page") ||
-    lower.includes("courses") ||
-    lower.includes("about us") ||
-    lower.includes("meet artisans") ||
-    raw.includes("ਮਾਰਕੀਟਪਲੇਸ")
-  ) {
-    const destination = lower.includes("course")
-      ? "courses"
-      : lower.includes("about")
-      ? "about"
-      : lower.includes("artisan")
-      ? "artisans"
-      : "marketplace";
-
-    return {
-      intent: "NAVIGATE",
-      entities: { destination },
-      detectedLanguage,
-      confidence: 0.92,
-    };
-  }
-
-  // 3. EARNINGS & PAYMENTS (earn, earned, earnings, kamai, kamaya, payout, payment, paise)
-  if (
-    lower.includes("earn") ||
-    lower.includes("kamai") ||
-    lower.includes("kamaya") ||
-    lower.includes("payout") ||
-    lower.includes("payment") ||
-    lower.includes("paise") ||
-    lower.includes("income") ||
-    raw.includes("ਕਮਾਈ") ||
-    raw.includes("ਪੈਸੇ") ||
-    raw.includes("कमाई") ||
-    raw.includes("भुगतान")
-  ) {
-    if (lower.includes("pending") || lower.includes("baaki") || lower.includes("baki") || raw.includes("ਬਾਕੀ")) {
-      return { intent: "PAYMENT_PENDING", entities: {}, detectedLanguage, confidence: 0.95 };
-    }
-    if (lower.includes("history") || lower.includes("record") || lower.includes("purane") || raw.includes("ਇਤਿਹਾਸ")) {
-      return { intent: "PAYMENT_HISTORY", entities: {}, detectedLanguage, confidence: 0.95 };
-    }
-    return { intent: "PAYMENT_SUMMARY", entities: {}, detectedLanguage, confidence: 0.95 };
-  }
-
-  // 2. DASHBOARD / BUSINESS SUMMARY
-  if (
-    lower.includes("dashboard") ||
-    lower.includes("summary") ||
-    lower.includes("analytics") ||
-    lower.includes("karobar kaisa") ||
-    lower.includes("business kaisa") ||
-    lower.includes("how is my business") ||
-    lower.includes("overall status") ||
-    raw.includes("ਸੰਖੇਪ") ||
-    raw.includes("ਕਾਰੋਬਾਰ") ||
-    raw.includes("कारोबार")
-  ) {
-    return { intent: "DASHBOARD_SUMMARY", entities: {}, detectedLanguage, confidence: 0.92 };
-  }
-
-  // 3. ORDERS
-  if (
-    lower.includes("order") ||
-    lower.includes("orders") ||
-    raw.includes("ਆਰਡਰ") ||
-    raw.includes("ऑर्डर")
-  ) {
-    // Order Actions
-    if (lower.includes("accept") || lower.includes("swikar") || raw.includes("ਸਵੀਕਾਰ")) {
-      const match = raw.match(/#?([a-zA-Z0-9_-]{5,})/);
-      return {
-        intent: "ORDER_ACCEPT",
-        entities: { orderNumber: match ? match[1] : "" },
-        detectedLanguage,
-        confidence: 0.92,
-      };
-    }
-    if (lower.includes("reject") || lower.includes("decline") || lower.includes("mana") || raw.includes("ਰੱਦ")) {
-      const match = raw.match(/#?([a-zA-Z0-9_-]{5,})/);
-      return {
-        intent: "ORDER_REJECT",
-        entities: { orderNumber: match ? match[1] : "" },
-        detectedLanguage,
-        confidence: 0.92,
-      };
-    }
-    if (lower.includes("complete") || lower.includes("poora") || lower.includes("finish") || raw.includes("ਪੂਰਾ")) {
-      const match = raw.match(/#?([a-zA-Z0-9_-]{5,})/);
-      return {
-        intent: "ORDER_COMPLETE",
-        entities: { orderNumber: match ? match[1] : "" },
-        detectedLanguage,
-        confidence: 0.92,
-      };
-    }
-    if (lower.includes("detail") || lower.includes("kiska order") || lower.includes("about order")) {
-      const match = raw.match(/#?([a-zA-Z0-9_-]{5,})/);
-      return {
-        intent: "ORDER_DETAILS",
-        entities: { orderNumber: match ? match[1] : "" },
-        detectedLanguage,
-        confidence: 0.9,
-      };
-    }
-
-    // Order Listing with Status Filter
-    let status = "All";
-    if (lower.includes("pending") || lower.includes("new") || lower.includes("naye") || raw.includes("ਨਵੇਂ") || raw.includes("ਲੰਬਿਤ")) {
-      status = "Pending";
-    } else if (lower.includes("completed") || lower.includes("poore") || raw.includes("ਪੂਰੇ")) {
-      status = "Completed";
-    } else if (lower.includes("processing") || lower.includes("shipped")) {
-      status = "Processing";
-    }
-
-    return {
-      intent: "ORDER_LIST",
-      entities: { status },
-      detectedLanguage,
-      confidence: 0.95,
-    };
-  }
-
-  // 4. ADD PRODUCT (matches "Add a new...", "I want to sell...", "Naya saman bechna hai")
-  if (
-    lower.startsWith("add ") ||
-    lower.includes("add a ") ||
-    lower.includes("add new") ||
-    lower.includes("want to sell") ||
-    lower.includes("sell a ") ||
-    lower.includes("sell my ") ||
-    lower.includes("naya product") ||
-    lower.includes("bechna hai") ||
-    lower.includes("jodna hai") ||
-    raw.includes("ਨਵਾਂ ਉਤਪਾਦ") ||
-    raw.includes("ਵੇਚਣਾ ਹੈ") ||
-    raw.includes("ਜੋੜੋ")
-  ) {
-    const priceMatch = raw.match(/(?:for|rs\.?|inr|₹|price|rate|rupees|at)\s*(\d{2,6})/i) || raw.match(/(\d{3,6})\s*(?:rs\.?|rupees|₹)/i);
-    const stockMatch = raw.match(/(?:stock|quantity|items?|units?|pieces?|chairs?|pece|nag|ਨਗ)?\s*(\d+)\s*(?:stock|quantity|items?|units?|pieces?|chairs?|pece|nag|ਨਗ)/i);
-
-    // Try to extract title: between 'add/sell' and 'for/at/with/price/rs'
-    let extractedTitle = raw
-      .replace(/^(add|i want to sell|sell|add new|add a new|naya product|bechna hai|please add)\s+/i, "")
-      .replace(/\s+(for|at|price|with|in category|rs|rupees|₹).*/i, "")
-      .replace(/\b(product|item|saman)\b/gi, "")
-      .trim();
-
-    return {
-      intent: "PRODUCT_ADD",
+      intent: "PROFILE_UPDATE",
       entities: {
-        title: extractedTitle || undefined,
-        price: priceMatch ? Number(priceMatch[1]) : undefined,
-        stock: stockMatch ? Number(stockMatch[1]) : undefined,
+        skills: detectedSkills,
+        artCategory: detectedSkills[0] || "",
+        experience: detectedExperience,
+        city: detectedLocation,
+        name: detectedName,
+        phone: phoneDigits.length >= 10 ? phoneDigits.slice(-10) : undefined,
       },
       detectedLanguage,
-      confidence: 0.95,
+      confidence: 0.96,
     };
   }
 
-  // 5. SEARCH & DISCOVERY
+  // Profile completion check ("What is missing?", "Complete profile", "ਪ੍ਰੋਫਾਈਲ ਪੂਰੀ ਕਰੋ")
   if (
-    (lower.startsWith("find ") ||
-      lower.startsWith("search ") ||
-      lower.startsWith("dhoondo ") ||
-      raw.includes("ਲੱਭੋ") ||
-      raw.includes("ਢੂੰਢੋ")) &&
-    !lower.includes("industry") &&
-    !lower.includes("industrialist") &&
-    !lower.includes("factory") &&
-    !lower.includes("project")
+    lower.includes("missing") || lower.includes("complete profile") || lower.includes("completion") ||
+    lower.includes("adhura") || raw.includes("ਅਧੂਰਾ") || raw.includes("ਪੂਰੀ ਕਰੋ") ||
+    raw.includes("अधूरा") || raw.includes("पूरी करो")
   ) {
-    const query = raw
-      .replace(/^(find|search|dhoondo|please find|search for|ਲੱਭੋ|ਢੂੰਢੋ)\s+/i, "")
-      .replace(/\b(product|item|saman|for)\b/gi, "")
-      .trim();
     return {
-      intent: "PRODUCT_SEARCH",
-      entities: { query: query || raw },
-      detectedLanguage,
-      confidence: 0.92,
-    };
-  }
-
-  // 6. PRODUCTS / LISTINGS
-  if (
-    lower.includes("product") ||
-    lower.includes("products") ||
-    lower.includes("item") ||
-    lower.includes("items") ||
-    lower.includes("saman") ||
-    lower.includes("cheez") ||
-    raw.includes("ਉਤਪਾਦ") ||
-    raw.includes("ਸਮਾਨ") ||
-    raw.includes("सामान") ||
-    raw.includes("उत्पाद")
-  ) {
-    if (lower.includes("delete") || lower.includes("remove") || lower.includes("hatao") || raw.includes("ਮਿਟਾਓ")) {
-      const title = raw.replace(/(delete|remove|hatao|product|item|saman|ਮਿਟਾਓ)/gi, "").trim();
-      return {
-        intent: "PRODUCT_DELETE",
-        entities: { title },
-        detectedLanguage,
-        confidence: 0.9,
-      };
-    }
-
-    if (lower.includes("price") || lower.includes("rate") || lower.includes("stock") || lower.includes("update") || lower.includes("change")) {
-      const numMatch = raw.match(/\d+/);
-      return {
-        intent: "PRODUCT_UPDATE",
-        entities: {
-          price: lower.includes("price") || lower.includes("rate") ? (numMatch ? Number(numMatch[0]) : undefined) : undefined,
-          stock: lower.includes("stock") ? (numMatch ? Number(numMatch[0]) : undefined) : undefined,
-        },
-        detectedLanguage,
-        confidence: 0.88,
-      };
-    }
-
-    if (lower.includes("search") || lower.includes("find") || lower.includes("dhoondo") || raw.includes("ਲੱਭੋ")) {
-      const query = raw.replace(/(search|find|dhoondo|product|item|saman|for)/gi, "").trim();
-      return {
-        intent: "PRODUCT_SEARCH",
-        entities: { query },
-        detectedLanguage,
-        confidence: 0.9,
-      };
-    }
-
-    return {
-      intent: "PRODUCT_LIST",
+      intent: "PROFILE_COMPLETION_CHECK",
       entities: {},
       detectedLanguage,
       confidence: 0.95,
     };
   }
 
-  // 6. INDUSTRIALISTS & COLLABORATIONS
+  // Create Artisan Profile
   if (
-    lower.includes("industry") ||
-    lower.includes("industrialist") ||
-    lower.includes("factory") ||
-    lower.includes("company") ||
-    lower.includes("collaboration") ||
-    lower.includes("proposal") ||
-    lower.includes("enquiry") ||
-    lower.includes("project") ||
-    raw.includes("ਉਦਯੋਗ") ||
-    raw.includes("ਫੈਕਟਰੀ") ||
-    raw.includes("उद्योग")
+    lower.includes("create artisan profile") || lower.includes("make artisan profile") ||
+    lower.includes("new artisan profile") || raw.includes("ਦਸਤਕਾਰ ਪ੍ਰੋਫਾਈਲ ਬਣਾਓ") ||
+    raw.includes("कारीगर प्रोफाइल बनाओ")
   ) {
-    if (lower.includes("accept") || raw.includes("ਸਵੀਕਾਰ")) {
-      return { intent: "COLLABORATION_ACCEPT", entities: {}, detectedLanguage, confidence: 0.9 };
-    }
-    if (lower.includes("request") || lower.includes("enquir") || lower.includes("proposal")) {
-      return { intent: "COLLABORATION_REQUESTS", entities: {}, detectedLanguage, confidence: 0.92 };
-    }
-    return { intent: "FIND_INDUSTRIALISTS", entities: {}, detectedLanguage, confidence: 0.92 };
+    return {
+      intent: "PROFILE_CREATE",
+      entities: {
+        name: detectedName,
+        city: detectedLocation,
+        skills: detectedSkills,
+        experience: detectedExperience,
+      },
+      detectedLanguage,
+      confidence: 0.95,
+    };
   }
 
-  // 7. PROFILE
+  // Profile Get vs Update
   if (
-    lower.includes("profile") ||
-    lower.includes("account") ||
-    lower.includes("mera naam") ||
-    lower.includes("phone number") ||
-    lower.includes("my details") ||
-    raw.includes("ਪ੍ਰੋਫਾਈਲ") ||
-    raw.includes("ਪ੍ਰੋਫਾਈਲ") ||
-    raw.includes("प्रोफाइल")
+    lower.includes("profile") || lower.includes("account") || lower.includes("my details") ||
+    raw.includes("ਪ੍ਰੋਫਾਈਲ") || raw.includes("ਵੇਰਵਾ") || raw.includes("प्रोफाइल")
   ) {
-    if (lower.includes("change") || lower.includes("update") || lower.includes("badlo") || raw.includes("ਬਦਲੋ")) {
+    if (lower.includes("update") || lower.includes("change") || lower.includes("badlo") || raw.includes("ਬਦਲੋ") || raw.includes("बदलो")) {
       const phoneDigits = raw.replace(/\D/g, "");
       return {
         intent: "PROFILE_UPDATE",
         entities: {
+          skills: detectedSkills,
+          experience: detectedExperience,
+          city: detectedLocation,
+          name: detectedName,
           phone: phoneDigits.length >= 10 ? phoneDigits.slice(-10) : undefined,
         },
         detectedLanguage,
-        confidence: 0.9,
+        confidence: 0.92,
       };
     }
     return { intent: "PROFILE_GET", entities: {}, detectedLanguage, confidence: 0.95 };
   }
 
-  // 8. NOTIFICATIONS
-  if (lower.includes("notification") || lower.includes("alert") || lower.includes("message") || raw.includes("ਸੂਚਨਾ")) {
-    return { intent: "NOTIFICATIONS_GET", entities: {}, detectedLanguage, confidence: 0.95 };
+  // 6. EARNINGS & PAYMENTS
+  if (
+    lower.includes("earn") || lower.includes("kamai") || lower.includes("kamaya") ||
+    lower.includes("payout") || lower.includes("payment") || lower.includes("paise") ||
+    raw.includes("ਕਮਾਈ") || raw.includes("ਪੈਸੇ") || raw.includes("कमाई") || raw.includes("भुगतान")
+  ) {
+    if (lower.includes("pending") || lower.includes("baaki") || raw.includes("ਬਾਕੀ") || raw.includes("बाकी")) {
+      return { intent: "PAYMENT_PENDING", entities: {}, detectedLanguage, confidence: 0.95 };
+    }
+    return { intent: "PAYMENT_SUMMARY", entities: {}, detectedLanguage, confidence: 0.95 };
+  }
+
+  // 7. ORDERS
+  if (
+    lower.includes("order") || lower.includes("orders") ||
+    raw.includes("ਆਰਡਰ") || raw.includes("ऑर्डर")
+  ) {
+    if (lower.includes("accept") || raw.includes("ਸਵੀਕਾਰ") || raw.includes("स्वीकार")) {
+      const match = raw.match(/#?([a-zA-Z0-9_-]{5,})/);
+      return { intent: "ORDER_ACCEPT", entities: { orderNumber: match ? match[1] : "" }, detectedLanguage, confidence: 0.92 };
+    }
+    if (lower.includes("complete") || raw.includes("ਪੂਰਾ") || raw.includes("पूरा")) {
+      const match = raw.match(/#?([a-zA-Z0-9_-]{5,})/);
+      return { intent: "ORDER_COMPLETE", entities: { orderNumber: match ? match[1] : "" }, detectedLanguage, confidence: 0.92 };
+    }
+
+    let status = "All";
+    if (lower.includes("pending") || raw.includes("ਨਵੇਂ") || raw.includes("लंबित")) status = "Pending";
+    else if (lower.includes("completed") || raw.includes("ਪੂਰੇ") || raw.includes("पूरे")) status = "Completed";
+
+    return { intent: "ORDER_LIST", entities: { status }, detectedLanguage, confidence: 0.95 };
+  }
+
+  // 8. PRODUCTS
+  if (
+    lower.startsWith("add ") || lower.includes("add a ") || lower.includes("add new") ||
+    lower.includes("naya saman") || raw.includes("ਨਵਾਂ ਉਤਪਾਦ") || raw.includes("नया उत्पाद")
+  ) {
+    const numMatch = raw.match(/\d+/);
+    return {
+      intent: "PRODUCT_ADD",
+      entities: {
+        title: raw.replace(/(add|a|new|product|naya|saman|ਨਵਾਂ|ਉਤਪਾਦ|नया|उत्पाद)/gi, "").trim(),
+        price: numMatch ? Number(numMatch[0]) : undefined,
+      },
+      detectedLanguage,
+      confidence: 0.92,
+    };
+  }
+
+  if (
+    lower.includes("product") || lower.includes("products") || lower.includes("item") ||
+    lower.includes("saman") || raw.includes("ਉਤਪਾਦ") || raw.includes("ਸਮਾਨ") || raw.includes("सामान")
+  ) {
+    if (lower.includes("update") || lower.includes("change") || lower.includes("price") || lower.includes("stock")) {
+      const numMatch = raw.match(/\d+/);
+      return {
+        intent: "PRODUCT_UPDATE",
+        entities: {
+          price: lower.includes("price") || raw.includes("ਕੀਮਤ") ? (numMatch ? Number(numMatch[0]) : undefined) : undefined,
+          stock: lower.includes("stock") || raw.includes("ਸਟਾਕ") ? (numMatch ? Number(numMatch[0]) : undefined) : undefined,
+        },
+        detectedLanguage,
+        confidence: 0.9,
+      };
+    }
+    return { intent: "PRODUCT_LIST", entities: {}, detectedLanguage, confidence: 0.95 };
+  }
+
+  // 9. INDUSTRIAL PROJECTS
+  if (
+    lower.includes("industry") || lower.includes("industrialist") || lower.includes("factory") ||
+    raw.includes("ਉਦਯੋਗ") || raw.includes("ਫੈਕਟਰੀ") || raw.includes("उद्योग")
+  ) {
+    return { intent: "FIND_INDUSTRIALISTS", entities: {}, detectedLanguage, confidence: 0.92 };
   }
 
   // 10. HELP
   if (
-    lower.includes("help") ||
-    lower.includes("madad") ||
-    lower.includes("sahayata") ||
-    lower.includes("kaise") ||
-    lower.includes("how to") ||
-    raw.includes("ਮਦਦ") ||
-    raw.includes("ਸਹਾਇਤਾ") ||
-    raw.includes("मदद") ||
-    raw.includes("सहायता")
+    lower.includes("help") || lower.includes("madad") || raw.includes("ਮਦਦ") || raw.includes("मदद")
   ) {
     return { intent: "HELP", entities: {}, detectedLanguage, confidence: 0.9 };
   }
 
-  return { intent: "UNKNOWN", entities: { raw }, detectedLanguage, confidence: 0.4 };
+  return {
+    intent: "UNKNOWN",
+    entities: { raw },
+    detectedLanguage,
+    confidence: 0.3,
+  };
 }
 
 /**
- * Main intent extraction pipeline
+ * Main intent parsing entry point with fallback
  */
+<<<<<<< HEAD
 export async function parseArtisanIntent(message, artisanContext = {}, userLanguage = "pa") {
   const trimmed = (message || "").trim();
   if (!trimmed) {
@@ -746,10 +824,12 @@ export async function parseArtisanIntent(message, artisanContext = {}, userLangu
   let result = null;
 
   // Try LLM if configured
+=======
+export async function parseArtisanIntent(message, artisanContext = {}) {
+>>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
   const provider = getLlmProvider();
-  const groqKey = getGroqKey();
-  const geminiKey = getGeminiKey();
 
+<<<<<<< HEAD
   if (provider === "groq" && groqKey) {
     try {
       result = await callGroqForIntent(trimmed, artisanContext, userLanguage);
@@ -763,9 +843,20 @@ export async function parseArtisanIntent(message, artisanContext = {}, userLangu
       result = await callGeminiForIntent(trimmed, artisanContext, userLanguage);
     } catch (e) {
       console.warn("Gemini intent parsing failed, falling back:", e.message);
+=======
+  try {
+    if (provider === "groq" && getGroqKey()) {
+      return await callGroqForIntent(message, artisanContext);
     }
+    if (provider === "gemini" && getGeminiKey()) {
+      return await callGeminiForIntent(message, artisanContext);
+>>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
+    }
+  } catch (error) {
+    console.warn(`LLM parser (${provider}) unavailable, using deterministic matcher:`, error.message);
   }
 
+<<<<<<< HEAD
   // Fallback to deterministic NLP matcher
   if (!result || !result.intent) {
     result = deterministicIntentMatcher(trimmed, userLanguage);
@@ -776,4 +867,7 @@ export async function parseArtisanIntent(message, artisanContext = {}, userLangu
   }
 
   return result;
+=======
+  return deterministicIntentMatcher(message);
+>>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
 }

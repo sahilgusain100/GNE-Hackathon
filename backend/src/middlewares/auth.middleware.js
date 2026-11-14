@@ -45,10 +45,11 @@ export const verifyJWT = async (req, res, next) => {
     const userId = decoded._id || decoded.id;
     const user = await User.findById(userId);
 
-    if (!user || user.isActive === false) {
+    if (!user || user.isActive === false || user.accountStatus === "Deactivated") {
       return res.status(401).json({
         success: false,
-        message: "This account is unavailable. Please contact an administrator.",
+        isDeactivated: true,
+        message: "This account has been deactivated by administration. Please contact support.",
       });
     }
 
@@ -95,6 +96,49 @@ export const requireExpert = requireRoles("expert");
 export const requireIndustry = requireRoles("industry");
 export const requireAdmin = requireRoles("admin");
 export const requireStaff = requireRoles("admin", "support");
+
+/**
+ * Guard for sensitive artisan write operations:
+ * Blocks suspended or deactivated artisans while preserving read, appeal & support capabilities.
+ */
+export const requireActiveArtisan = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized: Please log in first.",
+    });
+  }
+
+  if (req.user.accountType !== "artisan") {
+    return res.status(403).json({
+      success: false,
+      message: `Access denied. Restricted to artisan accounts only. Your account type is "${req.user.accountType}".`,
+    });
+  }
+
+  if (req.user.accountStatus === "Suspended") {
+    return res.status(403).json({
+      success: false,
+      isSuspended: true,
+      accountStatus: "Suspended",
+      verificationStatus: req.user.verificationStatus || "Under Review",
+      message: "Your SkillBridge account has temporarily been restricted and is currently under review. Certain account activities are unavailable.",
+      suspensionReason: req.user.aadhaarVerification?.suspensionReason || "Account flagged for review",
+      suspendedAt: req.user.aadhaarVerification?.suspendedAt || null,
+      appealStatus: req.user.appeal?.status || "None",
+    });
+  }
+
+  if (req.user.accountStatus === "Deactivated" || req.user.isActive === false) {
+    return res.status(403).json({
+      success: false,
+      isDeactivated: true,
+      message: "This artisan account has been deactivated. Please contact support.",
+    });
+  }
+
+  next();
+};
 
 export const requireVerifiedExpert = (req, res, next) => {
   if (!req.user) {

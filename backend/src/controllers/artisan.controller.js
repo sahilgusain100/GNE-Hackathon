@@ -192,6 +192,23 @@ export const getArtisanProducts = async (req, res) => {
 
 export const createArtisanProduct = async (req, res) => {
   try {
+    if (req.user.accountStatus === "Suspended") {
+      return res.status(403).json({
+        success: false,
+        isSuspended: true,
+        message:
+          "Your account is temporarily suspended. You cannot create new listings.",
+      });
+    }
+
+    if (req.user.accountStatus === "Deactivated" || req.user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        isDeactivated: true,
+        message: "Your account has been deactivated. Adding products is disabled.",
+      });
+    }
+
     const shop = await Shop.findOne({ artisan: req.user._id });
     if (!shop) {
       return res.status(400).json({
@@ -300,6 +317,37 @@ export const createArtisanProduct = async (req, res) => {
 export const publishArtisanProduct = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Strict Verification Requirement: Artisans cannot sell their product without verification
+    const isVerified =
+      req.user.verificationStatus === "Verified" || req.user.isVerified === true;
+    if (!isVerified) {
+      return res.status(403).json({
+        success: false,
+        requiresVerification: true,
+        verificationStatus: req.user.verificationStatus || "Not Submitted",
+        message:
+          "Artisans cannot sell products without verified identity. Please submit and complete your Aadhaar verification to publish products to the marketplace.",
+      });
+    }
+
+    if (req.user.accountStatus === "Suspended") {
+      return res.status(403).json({
+        success: false,
+        isSuspended: true,
+        message:
+          "Your account is temporarily suspended. You cannot publish products until your account review is resolved.",
+      });
+    }
+
+    if (req.user.accountStatus === "Deactivated" || req.user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        isDeactivated: true,
+        message: "Your account has been deactivated. Publishing products is disabled.",
+      });
+    }
+
     const shop = await Shop.findOne({ artisan: req.user._id });
     const product = await Product.findOne({ _id: id, artisan: req.user._id });
 
@@ -319,6 +367,7 @@ export const publishArtisanProduct = async (req, res) => {
 
     product.status = "Published";
     product.isPublished = true;
+    product.moderationPaused = false;
     await product.save();
 
     return res.status(200).json({
@@ -817,7 +866,7 @@ export const getArtisanProfile = async (req, res) => {
 export const updateArtisanProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-    const { name, phone, bio, artCategory, experience, city, state, hourlyRate } = req.body;
+    const { name, phone, bio, artCategory, experience, city, state, hourlyRate, skills, languages } = req.body;
 
     if (name?.trim()) user.name = name.trim();
     if (phone !== undefined) user.phone = String(phone).trim();
@@ -827,6 +876,20 @@ export const updateArtisanProfile = async (req, res) => {
     if (hourlyRate !== undefined) user.hourlyRate = Number(hourlyRate) || 0;
     if (city !== undefined) user.city = String(city).trim();
     if (state !== undefined) user.state = String(state).trim();
+    if (skills !== undefined) {
+      const parsedSkills = Array.isArray(skills)
+        ? skills
+        : String(skills).split(",").map((s) => s.trim()).filter(Boolean);
+      user.skills = parsedSkills;
+      if (!user.artCategory && parsedSkills.length > 0) {
+        user.artCategory = parsedSkills[0];
+      }
+    }
+    if (languages !== undefined) {
+      user.languages = Array.isArray(languages)
+        ? languages
+        : String(languages).split(",").map((l) => l.trim()).filter(Boolean);
+    }
 
     // Upload new avatar if provided
     if (req.file) {

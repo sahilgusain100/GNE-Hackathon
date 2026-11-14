@@ -1,12 +1,10 @@
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import os from "os";
 
-// Ensure temporary upload directory exists
-const tempDir = "./public/temp";
-if (!fs.existsSync(tempDir)) {
-  fs.mkdirSync(tempDir, { recursive: true });
-}
+const tempDir = path.join(os.tmpdir(), "skillbridge-uploads");
+fs.mkdirSync(tempDir, { recursive: true });
 
 // Storage configuration for Multer
 const storage = multer.diskStorage({

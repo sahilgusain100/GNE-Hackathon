@@ -39,6 +39,7 @@ import {
 } from '../services/admin-support-api'
 import { getTicketByIdApi, replyToTicketApi } from '../services/support-api'
 import { resolveDisputeApi } from '../services/dispute-api'
+import AdminVerificationManager from '../components/verification/AdminVerificationManager'
 
 const STATUS_PILLS = {
   Open: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -873,47 +874,11 @@ const AdminSupportPage = () => {
         )}
 
         {/* ─────────────────────────────────────────────────────────────
-            TAB 4: ARTISAN VERIFICATION HUB
+            TAB 4: ARTISAN VERIFICATION & MODERATION HUB
         ────────────────────────────────────────────────────────────── */}
         {activeTab === 'verification' && (
-          <div className="rounded-3xl border border-border/80 bg-surface p-6 sm:p-8 shadow-card space-y-6">
-            <div>
-              <h2 className="font-serif text-xl font-bold text-text-main">
-                Artisan Verification Management
-              </h2>
-              <p className="mt-1 text-xs text-text-muted leading-relaxed">
-                SkillBridge strictly protects trust: unverified artisan accounts must never be falsely marked as verified. Verify artisans after inspecting craftsmanship samples or master certificates.
-              </p>
-            </div>
-
-            <div className="max-w-md space-y-3">
-              <label className="text-xs font-bold text-text-main">
-                Artisan User ID
-              </label>
-              <div className="flex gap-2">
-                <input
-                  className="w-full rounded-xl border border-border bg-white px-3.5 py-2 text-xs font-mono text-text-main outline-none focus:border-secondary"
-                  onChange={(e) => setArtisanIdInput(e.target.value)}
-                  placeholder="Paste Artisan User ObjectId..."
-                  type="text"
-                  value={artisanIdInput}
-                />
-                <button
-                  className="rounded-xl bg-secondary px-4 py-2 text-xs font-bold text-white hover:bg-secondary-hover disabled:opacity-50 cursor-pointer shrink-0"
-                  disabled={verifyingArtisan || !artisanIdInput.trim()}
-                  onClick={() => handleToggleVerification(artisanIdInput.trim(), false)}
-                  type="button"
-                >
-                  {verifyingArtisan ? 'Updating…' : 'Toggle Verification'}
-                </button>
-              </div>
-
-              {verificationFeedback && (
-                <p className="text-xs font-semibold text-secondary">
-                  {verificationFeedback}
-                </p>
-              )}
-            </div>
+          <div className="rounded-3xl border border-border/80 bg-surface p-6 sm:p-8 shadow-card">
+            <AdminVerificationManager onStatsChanged={loadStats} />
           </div>
         )}
 

@@ -28,12 +28,16 @@ import {
   Upload,
   X,
   LifeBuoy,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import ArtisanLayout from '../components/layout/ArtisanLayout'
 import ProfileImageControl from '../components/profile/ProfileImageControl'
 import ArtisanProductEvaluationsSection from '../components/profile/ArtisanProductEvaluationsSection'
 import SupportCentre from '../components/support/SupportCentre'
+import AadhaarVerificationSection from '../components/verification/AadhaarVerificationSection'
+import ArtisanSuspensionBanner from '../components/verification/ArtisanSuspensionBanner'
 import { useAuthDialog } from '../hooks/useAuthDialog'
 import { getAccountHomePath } from '../utils/account-routing'
 import {
@@ -53,6 +57,7 @@ import {
 
 const sections = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'verification', label: 'Aadhaar Verification', icon: ShieldCheck },
   { id: 'evaluations', label: 'Get Evaluated', icon: Award },
   { id: 'training', label: 'Training', icon: GraduationCap },
   { id: 'arts', label: 'My Shop', icon: Store },
@@ -61,6 +66,8 @@ const sections = [
   { id: 'payments', label: 'Payment History', icon: WalletCards },
   { id: 'support', label: 'Support & Disputes', icon: LifeBuoy },
 ]
+
+const VALID_TABS = ['dashboard', 'verification', 'evaluations', 'training', 'arts', 'orders', 'profile', 'payments', 'support']
 
 const inputClass =
   'mt-1.5 w-full rounded-lg border border-border bg-white px-3.5 py-3 text-text-main outline-none transition placeholder:text-text-muted focus:border-secondary focus:ring-2 focus:ring-secondary/25'
@@ -74,17 +81,19 @@ function getStatusStyle(status) {
 
 const ArtisanProfilePage = () => {
   const { currentUser, authenticate } = useAuthDialog()
+  const isVerifiedArtisan =
+    currentUser?.verificationStatus === 'Verified' || currentUser?.isVerified === true
   const [searchParams] = useSearchParams()
   const initialTab = searchParams.get('tab')
   const [activeSection, setActiveSection] = useState(
-    initialTab && ['dashboard', 'evaluations', 'training', 'arts', 'orders', 'profile', 'payments', 'support'].includes(initialTab)
+    initialTab && VALID_TABS.includes(initialTab)
       ? initialTab
       : 'dashboard'
   )
 
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'evaluations', 'training', 'arts', 'orders', 'profile', 'payments', 'support'].includes(tab)) {
+    if (tab && VALID_TABS.includes(tab)) {
       setActiveSection(tab)
     }
   }, [searchParams])
@@ -402,6 +411,33 @@ const ArtisanProfilePage = () => {
     if (!listingId) return
     setListingNotice('')
     setListingError(false)
+
+    // Strict Enforcement: Artisans cannot sell their products without verification
+    const isVerified =
+      currentUser?.verificationStatus === 'Verified' || currentUser?.isVerified === true
+    if (!isVerified) {
+      setListingNotice(
+        'Identity verification is required before you can publish and sell products on SkillBridge. Please submit your Aadhaar verification to sell.',
+      )
+      setListingError(true)
+      setActiveSection('verification')
+      return
+    }
+
+    if (currentUser?.accountStatus === 'Suspended') {
+      setListingNotice(
+        'Your account is currently suspended and under review. You cannot publish products until your account review is resolved.',
+      )
+      setListingError(true)
+      return
+    }
+
+    if (currentUser?.accountStatus === 'Deactivated' || currentUser?.isActive === false) {
+      setListingNotice('Your account has been deactivated. Publishing products is disabled.')
+      setListingError(true)
+      return
+    }
+
     setPublishingListingId(listingId)
     try {
       const res = await publishArtisanListingApi(listingId)
@@ -514,6 +550,16 @@ const ArtisanProfilePage = () => {
   return (
     <ArtisanLayout>
       <main className="w-full px-4 py-6 sm:px-8 sm:py-9 lg:px-12">
+        {currentUser?.accountStatus === 'Suspended' && (
+          <ArtisanSuspensionBanner
+            currentUser={currentUser}
+            onAppealSubmitted={(updatedUser) => {
+              if (updatedUser) authenticate(updatedUser)
+            }}
+            onContactSupport={() => setActiveSection('support')}
+          />
+        )}
+
         <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
           <div className="relative overflow-hidden bg-primary px-5 py-7 text-white sm:px-8 sm:py-9">
             <div className="absolute -right-12 -top-32 h-72 w-72 rounded-full border border-white/10" />
@@ -536,10 +582,31 @@ const ArtisanProfilePage = () => {
                   Build your creative practice, learn from experts, and grow your shop.
                 </p>
               </div>
-              <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3.5 py-2 text-sm font-medium text-white">
-                <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
-                Artisan account
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {currentUser?.verificationStatus === 'Verified' ? (
+                  <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/20 px-3.5 py-1.5 text-xs font-bold text-emerald-200">
+                    <ShieldCheck aria-hidden="true" className="h-4 w-4 text-emerald-300" />
+                    Verified Artisan
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('verification')}
+                    className="inline-flex w-fit items-center gap-1.5 rounded-full border border-amber-300/40 bg-amber-400/20 px-3.5 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-400/30 cursor-pointer transition"
+                  >
+                    <ShieldCheck aria-hidden="true" className="h-4 w-4 text-amber-300" />
+                    {currentUser?.verificationStatus === 'Pending'
+                      ? 'Aadhaar Under Review'
+                      : currentUser?.verificationStatus === 'Rejected'
+                      ? 'Aadhaar Rejected (Resubmit)'
+                      : 'Verify Aadhaar'}
+                  </button>
+                )}
+                <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3.5 py-1.5 text-xs font-medium text-white">
+                  <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />
+                  Artisan account
+                </span>
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
@@ -638,6 +705,40 @@ const ArtisanProfilePage = () => {
 
           {activeSection === 'dashboard' && (
             <div>
+              {/* Aadhaar Verification Alert Banner */}
+              {currentUser?.verificationStatus !== 'Verified' && (
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-secondary/25 bg-secondary/5 p-4 sm:p-5 shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary text-white shadow-xs">
+                      <ShieldCheck className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-text-main">
+                        {currentUser?.verificationStatus === 'Pending'
+                          ? 'Aadhaar Document Verification is Pending'
+                          : currentUser?.verificationStatus === 'Rejected'
+                          ? 'Aadhaar Verification Needs Attention'
+                          : 'Complete Aadhaar Document Verification'}
+                      </h4>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        {currentUser?.verificationStatus === 'Pending'
+                          ? 'SkillBridge compliance is inspecting your uploaded Aadhaar card.'
+                          : currentUser?.verificationStatus === 'Rejected'
+                          ? 'Your previous submission was not approved. Please upload corrected photographs.'
+                          : 'Upload front and back Aadhaar photos to unlock the Verified Artisan trust badge.'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('verification')}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-secondary px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-secondary-hover transition cursor-pointer"
+                  >
+                    <span>{currentUser?.verificationStatus === 'Pending' ? 'View Status' : 'Go to Verification'}</span>
+                  </button>
+                </div>
+              )}
+
               {/* Voice AI Assistant Banner */}
               <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-secondary/30 bg-gradient-to-r from-secondary/10 via-surface to-primary/5 p-4 sm:p-5 shadow-xs">
                 <div className="flex items-start gap-3.5">
@@ -765,6 +866,15 @@ const ArtisanProfilePage = () => {
                 </section>
               </div>
             </div>
+          )}
+
+          {activeSection === 'verification' && (
+            <AadhaarVerificationSection
+              currentUser={currentUser}
+              onStatusUpdated={(updatedUser) => {
+                if (updatedUser) authenticate(updatedUser)
+              }}
+            />
           )}
 
           {activeSection === 'evaluations' && (
@@ -1260,6 +1370,33 @@ const ArtisanProfilePage = () => {
                 </form>
               )}
 
+              {/* Strict Selling Guard: Inform unverified artisans of Aadhaar requirement */}
+              {!isVerifiedArtisan && (
+                <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-amber-200 bg-amber-50/80 p-4 sm:p-5 shadow-2xs">
+                  <div className="flex items-start gap-3.5">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 shadow-2xs">
+                      <ShieldAlert className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-amber-950">
+                        Identity Verification Required to Sell
+                      </h4>
+                      <p className="mt-0.5 text-xs text-amber-800 leading-relaxed max-w-2xl">
+                        SkillBridge requires all artisans to verify their identity with government Aadhaar documents before publishing and selling products in the marketplace. Your listings remain as drafts until verification is approved.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('verification')}
+                    className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl bg-amber-700 px-4 py-2 text-xs font-bold text-white hover:bg-amber-800 transition shadow-2xs cursor-pointer shrink-0"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    <span>Verify Identity Now</span>
+                  </button>
+                </div>
+              )}
+
               {shop && listings.length ? (
                 <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full min-w-[48rem] text-left text-sm">
@@ -1291,12 +1428,16 @@ const ArtisanProfilePage = () => {
                             <td className="px-4 py-4">
                               <span
                                 className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                  listing.status === 'Published'
+                                  listing.moderationPaused
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    : listing.status === 'Published'
                                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                     : 'bg-surface-muted text-secondary'
                                 }`}
                               >
-                                {listing.status || 'Draft'}
+                                {listing.moderationPaused
+                                  ? 'Paused (Review)'
+                                  : listing.status || 'Draft'}
                               </span>
                             </td>
                             <td className="px-4 py-4">
@@ -1320,6 +1461,17 @@ const ArtisanProfilePage = () => {
                                       )}
                                     </button>
                                   </>
+                                ) : !isVerifiedArtisan ? (
+                                  <button
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50 cursor-pointer shadow-2xs"
+                                    disabled={isPublishing || isDeleting}
+                                    onClick={() => handlePublishListing(targetId)}
+                                    title="Aadhaar verification required to publish and sell"
+                                    type="button"
+                                  >
+                                    <ShieldAlert className="h-3.5 w-3.5" />
+                                    Verify to Sell
+                                  </button>
                                 ) : (
                                   <button
                                     className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-hover disabled:opacity-50 cursor-pointer"
