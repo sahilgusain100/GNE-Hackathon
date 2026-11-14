@@ -19,20 +19,29 @@ import adminSupportRoutes from "./routes/admin-support.routes.js";
 
 const app = express();
 
-const allowedOrigins = [
-  process.env.CORS_ORIGIN,
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:3000",
-  "https://gne-hackathon.vercel.app/"
-].filter(Boolean);
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      process.env.CORS_ORIGIN,
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "http://127.0.0.1:5173",
+      "http://127.0.0.1:3000",
+      "https://gne-hackathon.vercel.app",
+      "https://gne-hackathon-awan.vercel.app",
+    ]
+      .filter(Boolean)
+      .map((candidate) => candidate.replace(/\/$/, ""))
+  )
+);
 
 app.use(
   cors({
     origin: (origin, callback) => {
+      const normalizedOrigin = origin ? origin.replace(/\/$/, "") : origin;
+
       // Allow requests with no origin (like mobile apps, curl, or Postman)
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(normalizedOrigin)) {
         return callback(null, true);
       }
       return callback(null, true); // Permissive in dev to avoid CORS blocking
