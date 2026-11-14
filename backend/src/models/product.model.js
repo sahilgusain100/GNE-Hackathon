@@ -66,6 +66,11 @@ const productSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    moderationPaused: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     // Cost-based pricing guide
     materialCost: {
       type: Number,
@@ -204,6 +209,7 @@ productSchema.methods.toSafeObject = function (artisanName, shopLocation) {
     images: this.images && this.images.length ? this.images : primaryImg ? [primaryImg] : [],
     status: this.status,
     isPublished: this.isPublished,
+    moderationPaused: Boolean(this.moderationPaused),
     materialCost: this.materialCost || 0,
     laborHours: this.laborHours || 0,
     hourlyRate: this.hourlyRate || 0,

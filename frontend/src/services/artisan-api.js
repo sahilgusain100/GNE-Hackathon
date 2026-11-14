@@ -202,3 +202,53 @@ export async function getArtisanEvaluationsApi() {
 export async function getArtisanEvaluationByIdApi(productId) {
   return await apiRequest(`/artisan/evaluations/${productId}`, { method: 'GET' })
 }
+
+/**
+ * -------------------------------------------------------------
+ * Aadhaar Document Verification & Moderation Appeal API
+ * -------------------------------------------------------------
+ */
+
+/**
+ * Upload Aadhaar Front & Back documents with explicit consent
+ * @param {FormData} formData - Contains 'front', 'back', and 'consent'
+ */
+export async function uploadAadhaarDocumentsApi(formData) {
+  return await apiRequest('/artisan/verification/upload', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+/**
+ * Get current verification and appeal status
+ */
+export async function getVerificationStatusApi() {
+  return await apiRequest('/artisan/verification/status', { method: 'GET' })
+}
+
+/**
+ * Generate authenticated URL for viewing own Aadhaar document
+ */
+export function getArtisanAadhaarDocumentUrl(side, token) {
+  const baseUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000/api'
+  return `${baseUrl}/artisan/verification/document/${side}${token ? `?token=${encodeURIComponent(token)}` : ''}`
+}
+
+/**
+ * Submit appeal against account suspension
+ * @param {string} explanation
+ */
+export async function submitArtisanAppealApi(explanation) {
+  return await apiRequest('/artisan/appeal', {
+    method: 'POST',
+    body: JSON.stringify({ explanation }),
+  })
+}
+
+/**
+ * Get appeal review status
+ */
+export async function getArtisanAppealStatusApi() {
+  return await apiRequest('/artisan/appeal/status', { method: 'GET' })
+}

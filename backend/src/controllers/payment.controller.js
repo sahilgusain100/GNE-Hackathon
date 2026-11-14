@@ -153,13 +153,32 @@ export const createPaymentOrder = async (req, res) => {
           _id: productId,
           $or: [{ status: "Published" }, { isPublished: true }],
         })
-          .populate("artisan", "name")
+          .populate("artisan", "name accountStatus verificationStatus isVerified isActive")
           .populate("shop", "location");
 
         if (!product) {
           return res.status(404).json({
             success: false,
             message: "A product in your bag is no longer available.",
+          });
+        }
+        if (!product.artisan || product.artisan.isActive === false || product.artisan.accountStatus === "Deactivated") {
+          return res.status(403).json({
+            success: false,
+            message: `"${product.title}" is unavailable because the artisan's account has been deactivated.`,
+          });
+        }
+        if (product.artisan.accountStatus === "Suspended") {
+          return res.status(403).json({
+            success: false,
+            message: `Orders for "${product.title}" are temporarily paused as this artisan's account is currently under review.`,
+          });
+        }
+        const isArtisanVerified = product.artisan.verificationStatus === "Verified" || product.artisan.isVerified === true;
+        if (!isArtisanVerified) {
+          return res.status(403).json({
+            success: false,
+            message: `"${product.title}" cannot be purchased because the artisan has not completed identity verification. Artisans must be verified to sell products.`,
           });
         }
         if (product.stock < quantity) {

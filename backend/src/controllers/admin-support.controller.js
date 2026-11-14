@@ -31,7 +31,10 @@ export const getSupportStats = async (req, res) => {
       Dispute.countDocuments({ status: { $nin: ["Resolved", "Closed"] } }),
       Report.countDocuments({ status: "Pending" }),
       User.countDocuments({ accountType: "artisan" }),
-      User.countDocuments({ accountType: "artisan", isVerified: true }),
+      User.countDocuments({
+        accountType: "artisan",
+        $or: [{ isVerified: true }, { verificationStatus: "Verified" }],
+      }),
     ]);
 
     return res.status(200).json({

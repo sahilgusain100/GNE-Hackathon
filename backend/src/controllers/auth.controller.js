@@ -203,6 +203,14 @@ export const login = async (req, res) => {
       });
     }
 
+    if (user.accountStatus === "Deactivated" || user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        isDeactivated: true,
+        message: "This account has been deactivated by administration. Access denied.",
+      });
+    }
+
     const token = user.generateAccessToken();
     res.cookie("token", token, getCookieOptions());
 

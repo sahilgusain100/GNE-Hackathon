@@ -15,6 +15,17 @@ import {
   updateReportStatus,
   toggleArtisanVerification,
 } from "../controllers/admin-support.controller.js";
+import {
+  getArtisansVerificationQueue,
+  getArtisanVerificationDetail,
+  getAdminAadhaarDocument,
+  approveArtisanVerification,
+  rejectArtisanVerification,
+  markArtisanSuspicious,
+  restoreArtisanAccount,
+  reviewArtisanAppeal,
+  deactivateArtisanAccount,
+} from "../controllers/admin-verification.controller.js";
 
 const router = Router();
 
@@ -32,5 +43,17 @@ router.get("/disputes", getAllDisputes);
 router.get("/reports", getAllReports);
 router.patch("/reports/:id", updateReportStatus);
 router.post("/artisan-verify/:id", requireAdmin, toggleArtisanVerification);
+
+// Artisan Aadhaar Verification & Account Moderation Routes
+router.get("/artisan-verification", getArtisansVerificationQueue);
+router.get("/artisan-verification/queue", getArtisansVerificationQueue);
+router.get("/artisan-verification/:id", getArtisanVerificationDetail);
+router.get("/artisan-verification/:id/document/:side", getAdminAadhaarDocument);
+router.post("/artisan-verification/:id/approve", requireAdmin, approveArtisanVerification);
+router.post("/artisan-verification/:id/reject", requireAdmin, rejectArtisanVerification);
+router.post("/artisan-verification/:id/mark-suspicious", requireAdmin, markArtisanSuspicious);
+router.post("/artisan-verification/:id/restore", requireAdmin, restoreArtisanAccount);
+router.post("/artisan-verification/:id/appeal-review", requireAdmin, reviewArtisanAppeal);
+router.post("/artisan-verification/:id/deactivate", requireAdmin, deactivateArtisanAccount);
 
 export default router;
