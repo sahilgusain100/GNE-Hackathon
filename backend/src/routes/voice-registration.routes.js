@@ -6,8 +6,16 @@ import {
   getVoiceSummary,
   registerArtisanVoice,
 } from "../controllers/voice-registration.controller.js";
-import { handleVoiceAssistantMessage } from "../controllers/voice-assistant.controller.js";
-import { optionalJWT } from "../middlewares/auth.middleware.js";
+import {
+  handleVoiceAssistantMessage,
+  getVoiceArtisanProfileController,
+  updateVoiceArtisanProfileController,
+  manageVoiceArtisanSkillController,
+  synthesizeVoiceAudioController,
+  transcribeVoiceAudioController,
+} from "../controllers/voice-assistant.controller.js";
+import { optionalJWT, verifyJWT } from "../middlewares/auth.middleware.js";
+import { upload } from "../middlewares/multer.middleware.js";
 
 const router = Router();
 
@@ -20,5 +28,14 @@ router.post("/register", registerArtisanVoice);
 
 // Universal Mascot & Voice Assistant route (supports authenticated artisans as well as guests on login/signup)
 router.post("/assistant", optionalJWT, handleVoiceAssistantMessage);
+
+// Structured Artisan Profile Tools
+router.get("/artisan-profile", verifyJWT, getVoiceArtisanProfileController);
+router.post("/artisan-profile/update", verifyJWT, updateVoiceArtisanProfileController);
+router.post("/artisan-profile/skill", verifyJWT, manageVoiceArtisanSkillController);
+
+// Speech Synthesis & Recognition Services
+router.post("/tts", synthesizeVoiceAudioController);
+router.post("/stt", upload.single("audio"), transcribeVoiceAudioController);
 
 export default router;

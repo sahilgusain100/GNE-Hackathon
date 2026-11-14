@@ -103,3 +103,80 @@ export async function sendVoiceAssistantMessageApi({
     }),
   })
 }
+
+/**
+ * Retrieve artisan profile & completion diagnostic
+ */
+export async function getVoiceArtisanProfileApi() {
+  return await apiRequest('/voice/artisan-profile', {
+    method: 'GET',
+  })
+}
+
+/**
+ * Update artisan profile via voice tool
+ */
+export async function updateVoiceArtisanProfileApi(updates) {
+  return await apiRequest('/voice/artisan-profile/update', {
+    method: 'POST',
+    body: JSON.stringify(updates),
+  })
+}
+
+/**
+ * Add or remove artisan skill via voice tool
+ */
+export async function manageVoiceArtisanSkillApi(action, skill) {
+  return await apiRequest('/voice/artisan-profile/skill', {
+    method: 'POST',
+    body: JSON.stringify({ action, skill }),
+  })
+}
+
+/**
+ * Synthesize speech audio from text
+ */
+export async function synthesizeVoiceAudioApi(text, language = 'pa') {
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}/voice/tts`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, language }),
+    })
+  } catch (error) {
+    throw new Error('TTS service connection failed.')
+  }
+  if (!response.ok) {
+    throw new Error(`TTS synthesis failed with status ${response.status}`)
+  }
+  return response.blob()
+}
+
+/**
+ * Transcribe spoken audio file via backend Whisper STT
+ */
+export async function transcribeVoiceAudioApi(audioBlob, language = '') {
+  const formData = new FormData()
+  formData.append('audio', audioBlob, 'voice.wav')
+  if (language) formData.append('language', language)
+
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}/voice/stt`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    })
+  } catch (error) {
+    throw new Error('Whisper STT service connection failed.')
+  }
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => null)
+    throw new Error(err?.message || 'Speech-to-text failed.')
+  }
+  return await response.json()
+}
+

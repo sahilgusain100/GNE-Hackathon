@@ -817,7 +817,7 @@ export const getArtisanProfile = async (req, res) => {
 export const updateArtisanProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-    const { name, phone, bio, artCategory, experience, city, state, hourlyRate } = req.body;
+    const { name, phone, bio, artCategory, experience, city, state, hourlyRate, skills, languages } = req.body;
 
     if (name?.trim()) user.name = name.trim();
     if (phone !== undefined) user.phone = String(phone).trim();
@@ -827,6 +827,20 @@ export const updateArtisanProfile = async (req, res) => {
     if (hourlyRate !== undefined) user.hourlyRate = Number(hourlyRate) || 0;
     if (city !== undefined) user.city = String(city).trim();
     if (state !== undefined) user.state = String(state).trim();
+    if (skills !== undefined) {
+      const parsedSkills = Array.isArray(skills)
+        ? skills
+        : String(skills).split(",").map((s) => s.trim()).filter(Boolean);
+      user.skills = parsedSkills;
+      if (!user.artCategory && parsedSkills.length > 0) {
+        user.artCategory = parsedSkills[0];
+      }
+    }
+    if (languages !== undefined) {
+      user.languages = Array.isArray(languages)
+        ? languages
+        : String(languages).split(",").map((l) => l.trim()).filter(Boolean);
+    }
 
     // Upload new avatar if provided
     if (req.file) {

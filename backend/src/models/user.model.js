@@ -57,6 +57,10 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    skills: {
+      type: [String],
+      default: [],
+    },
     experience: {
       type: String,
       trim: true,
@@ -65,6 +69,10 @@ const userSchema = new mongoose.Schema(
     hourlyRate: {
       type: Number,
       default: 0,
+    },
+    languages: {
+      type: [String],
+      default: ["English", "Hindi", "Punjabi"],
     },
     // Expert specific fields
     expertise: {
@@ -152,8 +160,10 @@ userSchema.methods.toSafeObject = function () {
     state: this.state || "",
     bio: this.bio || "",
     artCategory: this.artCategory || "",
+    skills: this.skills || (this.artCategory ? [this.artCategory] : []),
     experience: this.experience || "",
     hourlyRate: this.hourlyRate || 0,
+    languages: this.languages || ["English", "Hindi", "Punjabi"],
     expertise: this.expertise || "",
     contactName: this.contactName || "",
     industry: this.industry || "",
