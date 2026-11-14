@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { CartProvider } from './context/CartContext'
 import AuthDialogProvider from './context/AuthDialogProvider'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuthDialog } from './hooks/useAuthDialog'
 import { getAccountHomePath } from './utils/account-routing'
 import FloatingRobotWidget from './components/voice/FloatingRobotWidget'
@@ -25,7 +25,7 @@ const FindArtisansPage = lazy(() => import('./pages/FindArtisansPage'))
 const StoryOfArtPage = lazy(() => import('./pages/StoryOfArtPage'))
 const AboutUsPage = lazy(() => import('./pages/AboutUsPage'))
 const SupportPage = lazy(() => import('./pages/SupportPage'))
-const AdminSupportPage = lazy(() => import('./pages/AdminSupportPage'))
+const StaffPortalPage = lazy(() => import('./pages/StaffPortalPage'))
 
 /**
  * Route guard that redirects logged-in users directly to their active role's dashboard.
@@ -37,6 +37,11 @@ const GuestOnlyRoute = ({ children }) => {
     return <Navigate replace to={getAccountHomePath(currentUser)} />
   }
   return children
+}
+
+const GlobalAssistant = () => {
+  const location = useLocation()
+  return location.pathname === '/staff/portal' ? null : <FloatingRobotWidget />
 }
 
 const App = () => {
@@ -106,15 +111,15 @@ const App = () => {
 
               {/* Support & Dispute Resolution Centre */}
               <Route path="/support" element={<SupportPage />} />
-              <Route path="/admin/support" element={<AdminSupportPage />} />
+              <Route path="/staff/portal" element={<StaffPortalPage />} />
+              <Route path="/admin/support" element={<Navigate replace to="/staff/portal" />} />
 
               {/* 404 Catch-All */}
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
 
-          {/* Global AI Robot Mascot & Voice Assistant (always at right corner) */}
-          <FloatingRobotWidget />
+          <GlobalAssistant />
         </CartProvider>
       </AuthDialogProvider>
     </BrowserRouter>

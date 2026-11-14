@@ -111,6 +111,19 @@ export async function loginApi(credentials) {
   return result
 }
 
+export async function staffLoginApi(credentials) {
+  const result = await apiRequest('/auth/staff-login', {
+    method: 'POST',
+    body: JSON.stringify(credentials),
+  })
+
+  if (result.token) {
+    setAuthToken(result.token)
+  }
+
+  return result
+}
+
 /**
  * Verify current authentication token
  * @param {string} [tokenOverride] - Optional token to verify

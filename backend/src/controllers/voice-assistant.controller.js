@@ -26,7 +26,11 @@ function cleanForSpeech(text = "") {
 export const handleVoiceAssistantMessage = async (req, res) => {
   try {
     const { message, conversationHistory = [], pendingAction = null, language = "pa" } = req.body || {};
-    const artisanUser = req.user && req.user.accountType === "artisan" ? req.user : null;
+    const activeUser = req.user || null;
+    const isArtisan = activeUser && activeUser.accountType === "artisan";
+    const isCustomer = activeUser && activeUser.accountType === "customer";
+    const isIndustry = activeUser && activeUser.accountType === "industry";
+    const artisanUser = isArtisan ? activeUser : null;
 
     if (!message || typeof message !== "string" || !message.trim()) {
       return res.status(400).json({
@@ -38,13 +42,18 @@ export const handleVoiceAssistantMessage = async (req, res) => {
     const trimmedMsg = message.trim();
 
     // Fetch current artisan shop for context if logged in as artisan
-    const shop = artisanUser ? await Shop.findOne({ artisan: artisanUser._id }) : null;
+    let shop = null;
+    try {
+      if (artisanUser) {
+        shop = await Shop.findOne({ artisan: artisanUser._id });
+      }
+    } catch (_) {}
 
     // Step 1: Check if there is an active pendingAction awaiting confirmation or cancellation
     if (pendingAction && pendingAction.type) {
       const intentCheck = await parseArtisanIntent(trimmedMsg, {
-        name: artisanUser?.name || "Guest",
-        id: artisanUser?._id ? artisanUser._id.toString() : "",
+        name: activeUser?.name || "Guest",
+        id: activeUser?._id ? activeUser._id.toString() : "",
         shopName: shop?.name || "",
       });
 
@@ -89,8 +98,8 @@ export const handleVoiceAssistantMessage = async (req, res) => {
 
     // Step 2: Parse Intent & Entities from message
     const parsed = await parseArtisanIntent(trimmedMsg, {
-      name: artisanUser?.name || "Guest",
-      id: artisanUser?._id ? artisanUser._id.toString() : "",
+      name: activeUser?.name || "Guest",
+      id: activeUser?._id ? activeUser._id.toString() : "",
       shopName: shop?.name || "",
     });
 
@@ -99,6 +108,123 @@ export const handleVoiceAssistantMessage = async (req, res) => {
 
     // Step 3: Route to specific Intent Handlers
     switch (parsed.intent) {
+      // --- GENERAL MASCOT INTENTS ---
+      case "GREETING": {
+        const userName = activeUser?.name ? ` ${activeUser.name} ji` : "";
+        const greetingReply =
+          lang === "pa"
+            ? `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ${userName}! ਮੈਂ ਸਕਿੱਲਬ੍ਰਿਜ ਦਾ AI ਮੈਸਕੌਟ ਹਾਂ। ਮੈਂ ਤੁਹਾਡੀ ਹਰ ਕੰਮ ਵਿੱਚ ਮਦਦ ਕਰ ਸਕਦਾ ਹਾਂ - ਉਤਪਾਦ ਖੋਜਣ, ਆਰਡਰ ਟ੍ਰੈਕ ਕਰਨ, ਬੋਲ ਕੇ ਰਜਿਸਟਰ ਕਰਨ, ਜਾਂ ਦੁਕਾਨ ਸੰਭਾਲਣ ਲਈ। ਤੁਸੀਂ ਕੀ ਪੁੱਛਣਾ ਚਾਹੁੰਦੇ ਹੋ?`
+            : lang === "hi"
+            ? `नमस्ते${userName}! मैं स्किलब्रिज का AI मैस्कॉट और सहायक हूँ। मैं उत्पाद ढूँढने, ऑर्डर ट्रैक करने, बोलकर रजिस्ट्रेशन करने, या दुकान संभालने में आपकी मदद करूँगा। आप क्या करना चाहते हैं?`
+            : `Hello${userName}! I am your SkillBridge AI Mascot. I can help you discover authentic handmade crafts, track your orders, register as an artisan with voice, or manage your shop. How can I help you today?`;
+
+        return res.status(200).json({
+          success: true,
+          reply: greetingReply,
+          speechText: cleanForSpeech(greetingReply),
+          pendingAction: null,
+          actionData: {
+            navigation: isArtisan
+              ? { label: "Artisan Profile & Shop", path: "/artisan/profile" }
+              : isCustomer
+              ? { label: "Explore Marketplace", path: "/marketplace" }
+              : { label: "Voice Register as Artisan", path: "/artisan/auth?mode=signup&method=voice", triggerVoiceSignup: true },
+          },
+        });
+      }
+
+      case "ABOUT_PLATFORM":
+      case "BOT_CAPABILITIES": {
+        const aboutReply =
+          lang === "pa"
+            ? "ਸਕਿੱਲਬ੍ਰਿਜ ਭਾਰਤ ਦਾ ਪ੍ਰਮੁੱਖ ਡਿਜੀਟਲ ਪਲੇਟਫਾਰਮ ਹੈ ਜੋ ਪੇਂਡੂ ਮਹਿਲਾ ਦਸਤਕਾਰਾਂ ਨੂੰ ਸਿੱਧਾ ਗਾਹਕਾਂ ਅਤੇ ਉਦਯੋਗਾਂ ਨਾਲ ਜੋੜਦਾ ਹੈ। ਇੱਥੇ 0% ਵਿਚੋਲਾ ਕਮਿਸ਼ਨ, ਨਿਰਪੱਖ ਕਮਾਈ, ਬਹੁਭਾਸ਼ਾਈ ਵਾਇਸ ਰਜਿਸਟ੍ਰੇਸ਼ਨ, ਅਤੇ 7 ਦਿਨਾਂ ਦੀ ਵਾਪਸੀ ਤੇ 14 ਦਿਨਾਂ ਦੀ ਗੁਣਵੱਤਾ ਸੁਰੱਖਿਆ ਹੈ। ਮੈਂ ਤੁਹਾਡਾ 24/7 AI ਮੈਸਕੌਟ ਹਾਂ!"
+            : lang === "hi"
+            ? "स्किलब्रिज भारत का भरोसेमंद मंच है जो ग्रामीण महिला कारीगरों को सीधे ग्राहकों और उद्योगों से जोड़ता है। यहाँ 0% बिचौलिया फीस, उचित पारिश्रमिक, बहुभाषी वॉइस रजिस्ट्रेशन और डिलीवरी के बाद पूरी सुरक्षा मिलती है।"
+            : "SkillBridge is India's ethical platform empowering rural women artisans by connecting them directly to buyers and industries. We feature 0% middleman fees, fair living wages, hands-free voice onboarding, and post-delivery dispute protection.";
+
+        return res.status(200).json({
+          success: true,
+          reply: aboutReply,
+          speechText: cleanForSpeech(aboutReply),
+          pendingAction: null,
+          actionData: {
+            navigation: { label: "Explore Handmade Marketplace", path: "/marketplace" },
+          },
+        });
+      }
+
+      case "SUPPORT_HELP": {
+        const supportReply =
+          lang === "pa"
+            ? "ਸਕਿੱਲਬ੍ਰਿਜ ਸਹਾਇਤਾ ਕੇਂਦਰ ਵਿੱਚ ਤੁਹਾਡਾ ਸਵਾਗਤ ਹੈ! ਸਾਡੇ ਕੋਲ 7 ਦਿਨਾਂ ਦੀ ਵਾਪਸੀ ਅਤੇ 14 ਦਿਨਾਂ ਦੀ ਗੁਣਵੱਤਾ ਵਿਵਾਦ ਨੀਤੀ ਹੈ। ਜੇ ਤੁਹਾਡੇ ਉਤਪਾਦ ਵਿੱਚ ਕੋਈ ਖਰਾਬੀ ਹੈ ਜਾਂ ਭੁਗਤਾਨ ਅਸਫਲ ਹੋਇਆ ਹੈ, ਤਾਂ ਤੁਸੀਂ ਫੋਟੋ ਸਬੂਤ ਦੇ ਨਾਲ ਸਹਾਇਤਾ ਟਿਕਟ ਜਾਂ ਸ਼ਿਕਾਇਤ ਦਰਜ ਕਰ ਸਕਦੇ ਹੋ।"
+            : lang === "hi"
+            ? "स्किलब्रिज सहायता केंद्र में आपका स्वागत है! हमारे पास 7 दिन की वापसी और 14 दिन की निष्पक्ष विवाद समाधान नीति है। क्षतिग्रस्त सामान, गलत उत्पाद, या भुगतान समस्या के लिए आप फोटो के साथ सपोर्ट टिकट खोल सकते हैं।"
+            : "Welcome to SkillBridge Support! All orders are protected under our 7-day return policy and 14-day quality dispute window. If you received a damaged item, incorrect specifications, or had payment issues, you can open an official support ticket or order dispute.";
+
+        return res.status(200).json({
+          success: true,
+          reply: supportReply,
+          speechText: cleanForSpeech(supportReply),
+          pendingAction: null,
+          actionData: {
+            navigation: { label: "Open Support Centre (ਸਹਾਇਤਾ ਕੇਂਦਰ)", path: "/support" },
+          },
+        });
+      }
+
+      case "ORDER_TRACK": {
+        let activeOrders = [];
+        try {
+          if (activeUser) {
+            const query = isArtisan
+              ? { "items.artisanId": activeUser._id }
+              : { customer: activeUser._id };
+            activeOrders = await Order.find(query).sort({ createdAt: -1 }).limit(3);
+          }
+        } catch (_) {}
+
+        if (activeOrders.length > 0) {
+          const firstOrder = activeOrders[0];
+          const trackReply =
+            lang === "pa"
+              ? `ਤੁਹਾਡਾ ਤਾਜ਼ਾ ਆਰਡਰ #${firstOrder.orderNumber || firstOrder._id.toString().slice(-6)} ਇਸ ਵੇਲੇ '${firstOrder.orderStatus || "Processing"}' ਸਥਿਤੀ ਵਿੱਚ ਹੈ। ਕੁੱਲ ਰਕਮ ₹${firstOrder.totalAmount || firstOrder.subtotal || 0} ਹੈ।`
+              : lang === "hi"
+              ? `आपका नवीनतम ऑर्डर #${firstOrder.orderNumber || firstOrder._id.toString().slice(-6)} वर्तमान में '${firstOrder.orderStatus || "Processing"}' स्थिति में है। कुल राशि ₹${firstOrder.totalAmount || firstOrder.subtotal || 0} है।`
+              : `Your latest order #${firstOrder.orderNumber || firstOrder._id.toString().slice(-6)} is currently '${firstOrder.orderStatus || "Processing"}'. Total amount is ₹${firstOrder.totalAmount || firstOrder.subtotal || 0}.`;
+
+          return res.status(200).json({
+            success: true,
+            reply: trackReply,
+            speechText: cleanForSpeech(trackReply),
+            actionData: {
+              orders: activeOrders.map((o) => (o.toSafeObject ? o.toSafeObject() : o)),
+              navigation: {
+                label: isArtisan ? "Artisan Orders" : "Track Orders in Profile",
+                path: isArtisan ? "/artisan/profile?tab=orders" : "/profile?tab=orders",
+              },
+            },
+          });
+        }
+
+        const noOrderReply =
+          lang === "pa"
+            ? "ਆਰਡਰ ਟ੍ਰੈਕ ਕਰਨ ਲਈ ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੇ ਖਾਤੇ ਵਿੱਚ ਲੌਗਇਨ ਕਰੋ ਜਾਂ ਪ੍ਰੋਫਾਈਲ ਵਿੱਚ ਆਰਡਰ ਇਤਿਹਾਸ ਦੇਖੋ।"
+            : lang === "hi"
+            ? "ऑर्डर ट्रैक करने के लिए कृपया अपने खाते में लॉगिन करें या प्रोफाइल में ऑर्डर हिस्ट्री देखें।"
+            : "To track an order, please log in or check your order history. Every order shows live status: Placed, Accepted, In Preparation, Shipped, or Delivered.";
+
+        return res.status(200).json({
+          success: true,
+          reply: noOrderReply,
+          speechText: cleanForSpeech(noOrderReply),
+          actionData: {
+            navigation: activeUser
+              ? { label: "View Order History", path: "/profile?tab=orders" }
+              : { label: "Login to Track", openAuth: "login" },
+          },
+        });
+      }
+
       // --- A. PROFILE MANAGEMENT ---
       case "PROFILE_GET": {
         if (!artisanUser) {
@@ -278,33 +404,50 @@ export const handleVoiceAssistantMessage = async (req, res) => {
       }
 
       case "PRODUCT_SEARCH": {
-        const query = entities.query || "";
-        const matched = await Product.find({
-          artisan: artisanUser._id,
-          title: new RegExp(query.trim(), "i"),
-        });
+        const query = (entities.query || "").trim();
+        let matched = [];
+        try {
+          if (artisanUser) {
+            matched = await Product.find({
+              artisan: artisanUser._id,
+              title: new RegExp(query, "i"),
+            });
+          } else {
+            const cleanQuery = query.replace(/(show|me|products|find|search|buy|crafts|handmade)/gi, "").trim();
+            const regex = new RegExp(cleanQuery || query, "i");
+            matched = await Product.find({
+              isPublished: true,
+              $or: [{ title: regex }, { category: regex }, { description: regex }],
+            }).limit(6);
+          }
+        } catch (_) {}
 
         if (matched.length === 0) {
           const notFoundMsg =
             lang === "pa"
-              ? `'${query}' ਨਾਂ ਦਾ ਕੋਈ ਉਤਪਾਦ ਨਹੀਂ ਮਿਲਿਆ।`
+              ? `'${query}' ਨਾਲ ਸੰਬੰਧਿਤ ਉਤਪਾਦ ਮਾਰਕੀਟਪਲੇਸ ਵਿੱਚ ਦੇਖੋ ਜੀ। ਸਾਡੇ ਕੋਲ ਫੁਲਕਾਰੀ, ਜੁੱਤੀਆਂ, ਅਤੇ ਲੱਕੜੀ ਦੀ ਦਸਤਕਾਰੀ ਉਪਲਬਧ ਹੈ।`
               : lang === "hi"
-              ? `'${query}' नाम का कोई उत्पाद नहीं मिला।`
-              : `No product found matching '${query}'.`;
+              ? `'${query}' से मिलते-जुलते हस्तशिल्प आप मार्केटप्लेस में देख सकते हैं। हमारे पास फुलकारी, जूतियाँ और लकड़ी के उत्पाद उपलब्ध हैं।`
+              : `Explore crafts matching '${query}' in our marketplace! We have authentic Phulkari, Punjabi juttis, and wooden handicrafts.`;
 
           return res.status(200).json({
             success: true,
             reply: notFoundMsg,
             speechText: cleanForSpeech(notFoundMsg),
             pendingAction: null,
+            actionData: {
+              navigation: { label: "Explore Marketplace (ਮਾਰਕੀਟਪਲੇਸ)", path: "/marketplace" },
+            },
           });
         }
 
-        const itemsDesc = matched.map((p) => `${p.title} (₹${p.price}, Stock: ${p.stock})`).join(", ");
+        const itemsDesc = matched.slice(0, 3).map((p) => `${p.title} (₹${p.price})`).join(", ");
         const searchReply =
           lang === "pa"
             ? `ਮੈਨੂੰ ਇਹ ਉਤਪਾਦ ਮਿਲੇ ਹਨ: ${itemsDesc}।`
-            : `I found the following: ${itemsDesc}.`;
+            : lang === "hi"
+            ? `मुझे ये उत्पाद मिले हैं: ${itemsDesc}।`
+            : `I found the following crafts: ${itemsDesc}.`;
 
         return res.status(200).json({
           success: true,
@@ -312,7 +455,8 @@ export const handleVoiceAssistantMessage = async (req, res) => {
           speechText: cleanForSpeech(searchReply),
           pendingAction: null,
           actionData: {
-            products: matched.map((p) => p.toSafeObject(artisanUser.name, shop?.location)),
+            products: matched.map((p) => (p.toSafeObject ? p.toSafeObject(artisanUser?.name, shop?.location) : p)),
+            navigation: { label: "View in Marketplace", path: "/marketplace" },
           },
         });
       }
@@ -401,13 +545,56 @@ export const handleVoiceAssistantMessage = async (req, res) => {
 
       // --- C. ORDER MANAGEMENT ---
       case "ORDER_LIST": {
+        if (isCustomer) {
+          let customerOrders = [];
+          try {
+            customerOrders = await Order.find({ customer: activeUser._id }).sort({ createdAt: -1 });
+          } catch (_) {}
+
+          if (customerOrders.length === 0) {
+            const noOrd =
+              lang === "pa"
+                ? "ਤੁਹਾਡੇ ਕੋਲ ਅਜੇ ਕੋਈ ਆਰਡਰ ਨਹੀਂ ਹੈ। ਕੀ ਤੁਸੀਂ ਮਾਰਕੀਟਪਲੇਸ ਵਿੱਚ ਦਸਤਕਾਰੀ ਦੇਖਣਾ ਚਾਹੁੰਦੇ ਹੋ?"
+                : "You have not placed any orders yet. Would you like to explore handmade crafts?";
+
+            return res.status(200).json({
+              success: true,
+              reply: noOrd,
+              speechText: cleanForSpeech(noOrd),
+              actionData: { navigation: { label: "Explore Marketplace", path: "/marketplace" } },
+            });
+          }
+
+          const firstOrder = customerOrders[0];
+          const listReply =
+            lang === "pa"
+              ? `ਤੁਹਾਡੇ ਕੁੱਲ ${customerOrders.length} ਆਰਡਰ ਹਨ। ਤਾਜ਼ਾ ਆਰਡਰ #${firstOrder.orderNumber || firstOrder._id.toString().slice(-6)} ਦੀ ਸਥਿਤੀ '${firstOrder.orderStatus || "Processing"}' ਹੈ।`
+              : `You have placed ${customerOrders.length} order(s). Your latest order #${firstOrder.orderNumber || firstOrder._id.toString().slice(-6)} is currently '${firstOrder.orderStatus || "Processing"}'.`;
+
+          return res.status(200).json({
+            success: true,
+            reply: listReply,
+            speechText: cleanForSpeech(listReply),
+            actionData: {
+              orders: customerOrders.slice(0, 4).map((o) => ({
+                id: o._id.toString(),
+                orderNumber: o.orderNumber,
+                subtotal: o.totalAmount || o.subtotal,
+                status: o.orderStatus,
+                items: o.items || [],
+              })),
+              navigation: { label: "View Order History in Profile", path: "/profile?tab=orders" },
+            },
+          });
+        }
+
         if (!artisanUser) {
           const reqLogin =
             lang === "pa"
-              ? "ਇਹ ਜਾਣਕਾਰੀ ਦੇਖਣ ਲਈ ਤੁਹਾਨੂੰ ਪਹਿਲਾਂ ਆਪਣੇ ਦਸਤਕਾਰ ਖਾਤੇ ਵਿੱਚ ਲੌਗਇਨ ਕਰਨਾ ਪਵੇਗਾ। ਕੀ ਮੈਂ ਤੁਹਾਨੂੰ ਲੌਗਇਨ ਪੇਜ 'ਤੇ ਲੈ ਜਾਵਾਂ?"
+              ? "ਆਰਡਰ ਦੇਖਣ ਲਈ ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੇ ਖਾਤੇ ਵਿੱਚ ਲੌਗਇਨ ਕਰੋ ਜੀ।"
               : lang === "hi"
-              ? "यह जानकारी देखने के लिए कृपया पहले कारीगर खाते में लॉगिन करें। क्या आप लॉगिन पेज पर जाना चाहते हैं?"
-              : "To view your profile and manage products, please log in to your artisan account first.";
+              ? "ऑर्डर देखने के लिए कृपया पहले लॉगिन करें।"
+              : "To view your orders or manage crafts, please log in to your account first.";
 
           return res.status(200).json({
             success: true,
@@ -415,7 +602,8 @@ export const handleVoiceAssistantMessage = async (req, res) => {
             speechText: cleanForSpeech(reqLogin),
             actionData: {
               navigation: {
-                label: "Go to Artisan Login (ਲੌਗਇਨ ਕਰੋ)",
+                label: "Go to Login (ਲੌਗਇਨ ਕਰੋ)",
+                openAuth: "login",
                 path: "/artisan/auth?mode=login",
               },
             },
@@ -875,34 +1063,60 @@ export const handleVoiceAssistantMessage = async (req, res) => {
 
       // --- H. HELP & ASSISTANCE ---
       case "HELP": {
-        const helpReply =
-          lang === "pa"
-            ? "ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ ਸਹਾਇਕ ਹਾਂ। ਤੁਸੀਂ ਮੈਨੂੰ ਉਤਪਾਦ ਜੋੜਨ, ਆਰਡਰ ਦੇਖਣ ਜਾਂ ਸਵੀਕਾਰ ਕਰਨ, ਕਮਾਈ ਚੈੱਕ ਕਰਨ, ਪ੍ਰੋਫਾਈਲ ਬਦਲਣ ਜਾਂ ਫੈਕਟਰੀਆਂ ਨਾਲ ਜੁੜਨ ਲਈ ਆਵਾਜ਼ ਵਿੱਚ ਕਹਿ ਸਕਦੇ ਹੋ।"
-            : lang === "hi"
-            ? "मैं आपका स्किलब्रिज सहायक हूँ। आप मुझसे बोलकर उत्पाद जोड़ सकते हैं, ऑर्डर देख सकते हैं, कमाई चेक कर सकते हैं और प्रोफाइल अपडेट कर सकते हैं।"
-            : "I am your SkillBridge assistant. You can speak commands to list products, check orders, accept requests, view earnings, or update your profile.";
+        let helpReply = "";
+        let nav = null;
+
+        if (isArtisan) {
+          helpReply =
+            lang === "pa"
+              ? "ਦਸਤਕਾਰ ਸਹਾਇਤਾ: ਤੁਸੀਂ ਮੈਨੂੰ ਉਤਪਾਦ ਜੋੜਨ ('ਨਵਾਂ ਉਤਪਾਦ ਜੋੜੋ'), ਪੈਂਡਿੰਗ ਆਰਡਰ ਦੇਖਣ ('ਪੈਂਡਿੰਗ ਆਰਡਰ'), ਕੁੱਲ ਕਮਾਈ ਚੈੱਕ ਕਰਨ ('ਮੇਰੀ ਕਮਾਈ'), ਜਾਂ ਫੈਕਟਰੀ ਪ੍ਰੋਜੈਕਟ ਲੱਭਣ ('ਉਦਯੋਗ ਲੱਭੋ') ਲਈ ਕਹਿ ਸਕਦੇ ਹੋ।"
+              : lang === "hi"
+              ? "कारीगर सहायता: आप उत्पाद जोड़ने ('नया उत्पाद जोड़ो'), पेंडिंग ऑर्डर देखने ('पेंडिंग ऑर्डर'), कमाई चेक करने ('मेरी कमाई'), या फैक्ट्री प्रोजेक्ट ढूँढने के लिए बोल सकते हैं।"
+              : "Artisan Help: You can speak commands to add a product ('Add new product'), view pending orders ('Pending orders'), check earnings ('My earnings'), or find industry projects ('Find industrialists').";
+          nav = { label: "Artisan Profile & Shop", path: "/artisan/profile" };
+        } else if (isCustomer) {
+          helpReply =
+            lang === "pa"
+              ? "ਗਾਹਕ ਸਹਾਇਤਾ: ਤੁਸੀਂ ਮੈਨੂੰ ਉਤਪਾਦ ਖੋਜਣ ('ਫੁਲਕਾਰੀ ਦਿਖਾਓ'), ਆਰਡਰ ਟ੍ਰੈਕ ਕਰਨ ('ਮੇਰਾ ਆਰਡਰ ਟ੍ਰੈਕ ਕਰੋ'), ਜਾਂ ਕਿਸੇ ਵੀ ਸਮੱਸਿਆ ਲਈ ਸਹਾਇਤਾ ਕੇਂਦਰ ('ਸਹਾਇਤਾ ਕੇਂਦਰ') ਖੋਲ੍ਹਣ ਲਈ ਕਹਿ ਸਕਦੇ ਹੋ।"
+              : lang === "hi"
+              ? "ग्राहक सहायता: आप उत्पाद खोजने ('फुलकारी दिखाओ'), ऑर्डर ट्रैक करने ('मेरा ऑर्डर ट्रैक करो'), या सहायता केंद्र ('सपोर्ट सेंटर') खोलने के लिए बोल सकते हैं।"
+              : "Customer Help: You can ask to find crafts ('Show me phulkari'), track delivery ('Track my order'), or open our Trust & Support Centre for return/refund requests.";
+          nav = { label: "Explore Marketplace", path: "/marketplace" };
+        } else {
+          helpReply =
+            lang === "pa"
+              ? "ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ ਸਹਾਇਕ ਹਾਂ! ਤੁਸੀਂ ਮੈਨੂੰ ਲੌਗਇਨ ਕਰਨ, ਬੋਲ ਕੇ ਦਸਤਕਾਰ ਵਜੋਂ ਰਜਿਸਟਰ ਕਰਨ, ਹੱਥੀਂ ਬਣੇ ਉਤਪਾਦ ਖੋਜਣ, ਜਾਂ ਗਾਹਕ ਸਹਾਇਤਾ ਲਈ ਕਹਿ ਸਕਦੇ ਹੋ।"
+              : lang === "hi"
+              ? "मैं आपका स्किलब्रिज सहायक हूँ! आप मुझसे लॉगिन करने, बोलकर कारीगर रजिस्ट्रेशन करने, हस्तशिल्प उत्पाद खोजने, या सहायता केंद्र के लिए कह सकते हैं।"
+              : "I am your SkillBridge Mascot & Assistant! You can ask how to log in, register hands-free as an artisan, explore authentic handmade crafts, or contact customer support.";
+          nav = { label: "Explore Marketplace", path: "/marketplace" };
+        }
 
         return res.status(200).json({
           success: true,
           reply: helpReply,
           speechText: cleanForSpeech(helpReply),
           pendingAction: null,
+          actionData: nav ? { navigation: nav } : null,
         });
       }
 
       default: {
         const defaultReply =
           lang === "pa"
-            ? "ਮੈਨੂੰ ਤੁਹਾਡੀ ਗੱਲ ਪੂਰੀ ਤਰ੍ਹਾਂ ਸਮਝ ਨਹੀਂ ਆਈ ਜੀ। ਤੁਸੀਂ ਮੈਨੂੰ ਕਹਿ ਸਕਦੇ ਹੋ: 'ਮੇਰੇ ਉਤਪਾਦ ਦਿਖਾਓ', 'ਪੈਂਡਿੰਗ ਆਰਡਰ ਦਿਖਾਓ', 'ਕਮਾਈ ਕਿੰਨੀ ਹੈ', ਜਾਂ 'ਨਵਾਂ ਉਤਪਾਦ ਜੋੜੋ'।"
+            ? "ਮੈਂ ਤੁਹਾਡੀ ਪੂਰੀ ਮਦਦ ਕਰਨਾ ਚਾਹੁੰਦਾ ਹਾਂ। ਤੁਸੀਂ ਮੈਨੂੰ ਕਹਿ ਸਕਦੇ ਹੋ: 'ਮਾਰਕੀਟਪਲੇਸ ਦਿਖਾਓ', 'ਆਰਡਰ ਟ੍ਰੈਕ ਕਰੋ', 'ਸਹਾਇਤਾ ਕੇਂਦਰ ਖੋਲ੍ਹੋ', ਜਾਂ 'ਬੋਲ ਕੇ ਰਜਿਸਟਰ ਕਰੋ'।"
             : lang === "hi"
-            ? "मुझे ठीक से समझ नहीं आया। आप बोल सकते हैं: 'मेरे उत्पाद दिखाओ', 'पेंडिंग ऑर्डर बताओ', 'मेरी कमाई कितनी है', या 'नया उत्पाद जोड़ो'।"
-            : "I didn't quite catch that. You can ask: 'Show my products', 'Check pending orders', 'What are my earnings?', or 'Add a product'.";
+            ? "मैं आपकी पूरी मदद करना चाहता हूँ। आप बोल सकते हैं: 'मार्केटप्लेस दिखाओ', 'ऑर्डर ट्रैक करो', 'सपोर्ट सेंटर', या 'कारीगर रजिस्ट्रेशन'।"
+            : "I'm here to help! You can ask: 'Show products', 'Track my order', 'Open support', or 'Register as an artisan'.";
 
         return res.status(200).json({
           success: true,
           reply: defaultReply,
           speechText: cleanForSpeech(defaultReply),
           pendingAction: null,
+          actionData: {
+            navigation: { label: "Explore Marketplace", path: "/marketplace" },
+          },
         });
       }
     }

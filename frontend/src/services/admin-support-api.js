@@ -1,5 +1,23 @@
 import { apiRequest } from "./auth-api";
 
+export async function getSupportStaffApi() {
+  return await apiRequest("/admin/support/staff");
+}
+
+export async function createSupportStaffApi(staff) {
+  return await apiRequest("/admin/support/staff", {
+    method: "POST",
+    body: JSON.stringify(staff),
+  });
+}
+
+export async function updateSupportStaffApi(staffId, updates) {
+  return await apiRequest(`/admin/support/staff/${staffId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
 export async function getSupportStatsApi() {
   return await apiRequest("/admin/support/stats");
 }

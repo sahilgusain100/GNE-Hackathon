@@ -45,10 +45,10 @@ export const verifyJWT = async (req, res, next) => {
     const userId = decoded._id || decoded.id;
     const user = await User.findById(userId);
 
-    if (!user) {
+    if (!user || user.isActive === false) {
       return res.status(401).json({
         success: false,
-        message: "User account associated with this token no longer exists.",
+        message: "This account is unavailable. Please contact an administrator.",
       });
     }
 

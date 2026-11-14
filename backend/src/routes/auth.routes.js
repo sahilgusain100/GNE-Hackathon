@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   signup,
   login,
+  staffLogin,
   verify,
   verifyAccount,
   logout,
@@ -25,6 +26,7 @@ const uploadSignupAvatar = upload.fields([
 router.post("/signup", uploadSignupAvatar, signup);
 router.post("/register", uploadSignupAvatar, signup); // alias for convenience
 router.post("/login", login);
+router.post("/staff-login", staffLogin);
 router.post("/logout", logout);
 
 // Verification endpoints

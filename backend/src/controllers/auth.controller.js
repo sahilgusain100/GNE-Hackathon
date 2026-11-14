@@ -180,6 +180,13 @@ export const login = async (req, res) => {
       });
     }
 
+    if (user.accountType === "admin" || user.accountType === "support") {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in through the staff portal.",
+      });
+    }
+
     // If an accountType was specified (e.g., from artisan or industry login page), verify match
     if (accountType && user.accountType !== accountType) {
       return res.status(401).json({
@@ -210,6 +217,52 @@ export const login = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Login failed. Please try again.",
+    });
+  }
+};
+
+// @desc    Authenticate admin or support staff through the private staff portal
+// @route   POST /api/auth/staff-login
+// @access  Public
+export const staffLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const normalizedEmail = sanitizeString(email).toLowerCase();
+
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required.",
+      });
+    }
+
+    const user = await User.findOne({
+      email: normalizedEmail,
+      accountType: { $in: ["admin", "support"] },
+      isActive: { $ne: false },
+    });
+
+    if (!user || !(await user.isPasswordCorrect(password))) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid staff credentials.",
+      });
+    }
+
+    const token = user.generateAccessToken();
+    res.cookie("token", token, getCookieOptions());
+
+    return res.status(200).json({
+      success: true,
+      message: "Staff portal sign-in successful.",
+      token,
+      user: user.toSafeObject(),
+    });
+  } catch (error) {
+    console.error("Staff login error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to sign in to the staff portal.",
     });
   }
 };

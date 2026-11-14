@@ -190,6 +190,124 @@ export function deterministicIntentMatcher(message = "") {
     return { intent: "NEGATION", entities: {}, detectedLanguage, confidence: 0.99 };
   }
 
+  // GREETINGS & SOCIAL INTENTS
+  if (
+    /^(hi|hello|hey|hey there|namaste|namaskar|sat sri akal|satsriakal|sasrikal|kem cho|adaab|good morning|good afternoon|good evening|ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ|ਸਤਿ ਸ਼੍ਰੀ ਅਕਾਲ|ਨਮਸਤੇ|ਹੈਲੋ|नमस्ते|नमस्कार|हेलो)$/i.test(
+      lower
+    ) ||
+    lower.startsWith("hi ") ||
+    lower.startsWith("hello") ||
+    lower.startsWith("hey ") ||
+    lower.includes("sat sri akal") ||
+    lower.includes("satsriakal") ||
+    lower.includes("namaste") ||
+    raw.includes("ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ") ||
+    raw.includes("ਸਤਿ ਸ਼੍ਰੀ ਅਕਾਲ") ||
+    raw.includes("ਨਮਸਤੇ") ||
+    raw.includes("नमस्ते")
+  ) {
+    return { intent: "GREETING", entities: {}, detectedLanguage, confidence: 0.98 };
+  }
+
+  // ABOUT SKILLBRIDGE & BOT CAPABILITIES
+  if (
+    lower.includes("what is skillbridge") ||
+    lower.includes("what can you do") ||
+    lower.includes("who are you") ||
+    lower.includes("what are you") ||
+    lower.includes("about skillbridge") ||
+    lower.includes("how does this work") ||
+    lower.includes("what does this app do") ||
+    lower.includes("how to use") ||
+    lower.includes("tell me about") ||
+    raw.includes("ਸਕਿੱਲਬ੍ਰਿਜ ਕੀ ਹੈ") ||
+    raw.includes("ਕੀ ਕਰ ਸਕਦੇ ਹੋ") ||
+    raw.includes("ਕੌਣ ਹੋ") ||
+    raw.includes("ਤੁਸੀਂ ਕੌਣ ਹੋ") ||
+    raw.includes("ਕੀ ਹੈ ਇਹ") ||
+    raw.includes("स्किलब्रिज क्या है") ||
+    raw.includes("तुम कौन हो") ||
+    raw.includes("क्या कर सकते हो")
+  ) {
+    return { intent: "ABOUT_PLATFORM", entities: {}, detectedLanguage, confidence: 0.96 };
+  }
+
+  // SUPPORT, DISPUTES, REFUNDS & COMPLAINTS
+  if (
+    lower.includes("support") ||
+    lower.includes("customer care") ||
+    lower.includes("helpdesk") ||
+    lower.includes("dispute") ||
+    lower.includes("refund") ||
+    lower.includes("return") ||
+    lower.includes("damaged") ||
+    lower.includes("complaint") ||
+    lower.includes("defective") ||
+    lower.includes("wrong product") ||
+    lower.includes("shikayat") ||
+    raw.includes("ਸਹਾਇਤਾ") ||
+    raw.includes("ਸ਼ਿਕਾਇਤ") ||
+    raw.includes("ਰਿਫੰਡ") ||
+    raw.includes("ਵਾਪਸੀ") ||
+    raw.includes("ਨੁਕਸਾਨ") ||
+    raw.includes("शिकायत") ||
+    raw.includes("रिफंड") ||
+    raw.includes("सहायता")
+  ) {
+    return { intent: "SUPPORT_HELP", entities: {}, detectedLanguage, confidence: 0.95 };
+  }
+
+  // ORDER TRACKING FOR CUSTOMERS & ARTISANS
+  if (
+    lower.includes("track") ||
+    lower.includes("tracking") ||
+    lower.includes("where is my order") ||
+    lower.includes("order status") ||
+    lower.includes("delivery status") ||
+    lower.includes("order kahan") ||
+    lower.includes("parcel kahan") ||
+    raw.includes("ਟ੍ਰੈਕ") ||
+    raw.includes("ਕਿੱਥੇ ਹੈ") ||
+    raw.includes("ਟਰੈਕ") ||
+    raw.includes("ट्रैक")
+  ) {
+    const match = raw.match(/#?([a-zA-Z0-9_-]{5,})/);
+    return {
+      intent: "ORDER_TRACK",
+      entities: { orderNumber: match ? match[1] : "" },
+      detectedLanguage,
+      confidence: 0.95,
+    };
+  }
+
+  // PRODUCT SEARCH & MARKETPLACE DISCOVERY
+  if (
+    lower.includes("show me products") ||
+    lower.includes("show products") ||
+    lower.includes("find products") ||
+    lower.includes("browse crafts") ||
+    lower.includes("explore products") ||
+    lower.includes("phulkari") ||
+    lower.includes("dupatta") ||
+    lower.includes("juti") ||
+    lower.includes("pottery") ||
+    lower.includes("shawl") ||
+    lower.includes("wood craft") ||
+    lower.includes("buy craft") ||
+    raw.includes("ਸਮਾਨ ਦਿਖਾਓ") ||
+    raw.includes("ਉਤਪਾਦ ਦਿਖਾਓ") ||
+    raw.includes("ਖਰੀਦਣਾ") ||
+    raw.includes("ਫੁਲਕਾਰੀ") ||
+    raw.includes("ਸਾਮਾਨ ਦਿਖਾਓ")
+  ) {
+    return {
+      intent: "PRODUCT_SEARCH",
+      entities: { query: raw },
+      detectedLanguage,
+      confidence: 0.95,
+    };
+  }
+
   // 1. LOGIN & SIGNUP (Checked first so 'Industry login' or 'Account banana' are recognized correctly)
   if (
     lower.includes("login") ||
@@ -542,7 +660,17 @@ export function deterministicIntentMatcher(message = "") {
   }
 
   // 10. HELP
-  if (lower.includes("help") || lower.includes("madad") || lower.includes("kaise") || lower.includes("how to") || raw.includes("ਮਦਦ")) {
+  if (
+    lower.includes("help") ||
+    lower.includes("madad") ||
+    lower.includes("sahayata") ||
+    lower.includes("kaise") ||
+    lower.includes("how to") ||
+    raw.includes("ਮਦਦ") ||
+    raw.includes("ਸਹਾਇਤਾ") ||
+    raw.includes("मदद") ||
+    raw.includes("सहायता")
+  ) {
     return { intent: "HELP", entities: {}, detectedLanguage, confidence: 0.9 };
   }
 

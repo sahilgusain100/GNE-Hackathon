@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   AlertCircle,
   Award,
@@ -100,14 +100,16 @@ const AdminSupportPage = () => {
   const [verifyingArtisan, setVerifyingArtisan] = useState(false)
   const [verificationFeedback, setVerificationFeedback] = useState('')
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const res = await getSupportStatsApi()
       if (res?.success) setStats(res.stats)
-    } catch {}
-  }
+    } catch (error) {
+      console.warn('Support statistics load error:', error.message)
+    }
+  }, [])
 
-  const loadTickets = async () => {
+  const loadTickets = useCallback(async () => {
     setLoading(true)
     try {
       const params = {}
@@ -123,9 +125,9 @@ const AdminSupportPage = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [ticketFilter])
 
-  const loadDisputes = async () => {
+  const loadDisputes = useCallback(async () => {
     setLoading(true)
     try {
       const res = await getAllDisputesAdminApi()
@@ -135,9 +137,9 @@ const AdminSupportPage = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const loadReports = async () => {
+  const loadReports = useCallback(async () => {
     setLoading(true)
     try {
       const params = {}
@@ -149,17 +151,17 @@ const AdminSupportPage = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [reportFilter])
 
   useEffect(() => {
     loadStats()
-  }, [])
+  }, [loadStats])
 
   useEffect(() => {
     if (activeTab === 'tickets') loadTickets()
     if (activeTab === 'disputes') loadDisputes()
     if (activeTab === 'reports') loadReports()
-  }, [activeTab, ticketFilter, reportFilter])
+  }, [activeTab, loadTickets, loadDisputes, loadReports])
 
   // Select ticket to view message feed
   const handleSelectTicket = async (ticket) => {
@@ -318,10 +320,10 @@ const AdminSupportPage = () => {
           <div>
             <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary">
               <ShieldCheck className="h-4 w-4" />
-              <span>SkillBridge Administration Portal</span>
+              <span>SkillBridge Support Portal</span>
             </div>
             <h1 className="mt-2 font-serif text-3xl font-bold tracking-tight text-text-main sm:text-4xl">
-              Support, Trust & Dispute Management
+              Support, Complaints & Dispute Management
             </h1>
             <p className="mt-1 text-xs text-text-muted">
               Evidence-based mediation, ticket triage, dispute decision recording, and marketplace trust moderation.
@@ -362,7 +364,9 @@ const AdminSupportPage = () => {
             { id: 'tickets', label: 'Support Tickets Triage', icon: MessageSquare, count: tickets.length },
             { id: 'disputes', label: 'Order Disputes & Mediation', icon: ShieldAlert, count: disputes.length },
             { id: 'reports', label: 'Trust & Safety Reports', icon: Flag, count: reports.length },
-            { id: 'verification', label: 'Artisan Verification Hub', icon: Award },
+            ...(currentUser?.accountType === 'admin'
+              ? [{ id: 'verification', label: 'Artisan Verification Hub', icon: Award }]
+              : []),
           ].map((tab) => {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
