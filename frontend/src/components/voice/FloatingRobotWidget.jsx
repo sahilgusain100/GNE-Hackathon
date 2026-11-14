@@ -49,12 +49,12 @@ const FloatingRobotWidget = ({ user: propUser }) => {
     if (activeUser?.accountType === 'artisan') {
       return {
         title: 'Artisan AI Studio',
-        subtitle: 'Orders · Products · Earnings',
-        punjabi: 'ਬੋਲ ਕੇ ਆਰਡਰ ਤੇ ਉਤਪਾਦ ਸੰਭਾਲੋ',
+        subtitle: 'Shop · Products · Earnings',
+        punjabi: 'ਦੁਕਾਨ ਬਣਾਓ, ਉਤਪਾਦ ਜੋੜੋ ਜਾਂ ਕੁਝ ਵੀ ਪੁੱਛੋ',
         chips: [
-          { label: '📦 ਨਵਾਂ ਉਤਪਾਦ', query: 'Add a new product' },
-          { label: '📋 ਪੈਂਡਿੰਗ ਆਰਡਰ', query: 'Show my pending orders' },
-          { label: '💰 ਕੁੱਲ ਕਮਾਈ', query: 'How much have I earned?' },
+          { label: '🏪 ਦੁਕਾਨ ਬਣਾਓ', query: 'Create my shop' },
+          { label: '📦 ਉਤਪਾਦ ਜੋੜੋ', query: 'Add a new product' },
+          { label: '💬 ਕੁਝ ਵੀ ਪੁੱਛੋ', query: 'Ask me anything' },
         ],
       }
     }

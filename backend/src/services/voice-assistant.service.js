@@ -11,56 +11,60 @@ const getLlmProvider = () => (process.env.LLM_PROVIDER || "gemini").toLowerCase(
 /**
  * System prompt defining all artisan actions and extraction schema
  */
-function buildAssistantSystemPrompt(artisanContext = {}) {
+function buildAssistantSystemPrompt(artisanContext = {}, userLanguage = "pa") {
   return `You are SkillBridge's AI Voice Assistant for Indian Artisans.
 The artisan is currently logged in.
 Artisan Name: "${artisanContext.name || "Artisan"}"
 Artisan ID: "${artisanContext.id || ""}"
 Shop Name: "${artisanContext.shopName || ""}"
+Active Requested Language: "${userLanguage}" (pa = Punjabi in Gurmukhi, hi = Hindi in Devanagari, en = English)
 
 Your job is to understand natural spoken requests in English, Hindi, Hinglish (Hindi written in English/Latin script), or Punjabi (Gurmukhi or Romanized).
 Determine the artisan's INTENT and extract any ENTITIES/PARAMETERS.
 
 SUPPORTED INTENTS:
-1. PROFILE_GET: View profile details ("Show my profile", "Mera profile dikhao", "ਮੇਰਾ ਵੇਰਵਾ ਦਿਖਾਓ")
-2. PROFILE_UPDATE: Update profile fields ("Change name to X", "Update phone to 9876543210", "Add weaving to my skills", "Change business name to X", "Update city to Patiala")
+1. START_GUIDED_SHOP: Guided shop creation workflow ("Create my shop", "Meri dukan banao", "ਮੇਰੀ ਦੁਕਾਨ ਬਣਾਓ", "दुकान बनानी है", "Open my shop", "Setup shop")
+2. START_GUIDED_PRODUCT: Guided product creation workflow ("Add a product", "Naya product jodna hai", "ਉਤਪਾਦ ਜੋੜੋ", "उत्पाद जोड़ें", "List a product", "Add craft")
+3. ASK_ME_ANYTHING: General Q&A / Platform queries ("Ask me anything", "Kuch bhi poocho", "ਕੁਝ ਵੀ ਪੁੱਛੋ", "कुछ भी पूछें", "What is SkillBridge", "How do payments work?")
+4. PROFILE_GET: View profile details ("Show my profile", "Mera profile dikhao", "ਮੇਰਾ ਵੇਰਵਾ ਦਿਖਾਓ")
+5. PROFILE_UPDATE: Update profile fields ("Change name to X", "Update phone to 9876543210", "Add weaving to my skills", "Change business name to X", "Update city to Patiala")
    - Entities: { name?, phone?, bio?, skills?, shopName?, city?, state? }
-3. PRODUCT_LIST: View products ("Show my products", "Mera saman dikhao", "What products do I have listed?")
-4. PRODUCT_SEARCH: Search products ("Find wooden chair", "Do I have dupattas?")
+6. PRODUCT_LIST: View products ("Show my products", "Mera saman dikhao", "What products do I have listed?")
+7. PRODUCT_SEARCH: Search products ("Find wooden chair", "Do I have dupattas?")
    - Entities: { query }
-5. PRODUCT_ADD: Add a product ("Add a new product", "I want to sell wooden table", "Naya product jodna hai", "Add wooden chair for 2500")
+8. PRODUCT_ADD: Add a product ("Add a new product", "I want to sell wooden table", "Naya product jodna hai", "Add wooden chair for 2500")
    - Entities: { title?, category?, price?, stock?, description? }
-6. PRODUCT_UPDATE: Update price or stock ("Change price of wooden chair to 2500", "Update stock of table to 10")
+9. PRODUCT_UPDATE: Update price or stock ("Change price of wooden chair to 2500", "Update stock of table to 10")
    - Entities: { title?, productId?, price?, stock? }
-7. PRODUCT_DELETE: Delete product ("Delete wooden chair", "Remove table")
+10. PRODUCT_DELETE: Delete product ("Delete wooden chair", "Remove table")
    - Entities: { title?, productId? }
-8. ORDER_LIST: View orders ("Show my orders", "Do I have new orders?", "Pending orders dikhao", "Completed orders")
+11. ORDER_LIST: View orders ("Show my orders", "Do I have new orders?", "Pending orders dikhao", "Completed orders")
    - Entities: { status?: "Pending" | "Completed" | "Processing" | "All", customerName?, productTitle? }
-9. ORDER_DETAILS: Order details ("Show details of order #1234", "Details of Rahul's order")
+12. ORDER_DETAILS: Order details ("Show details of order #1234", "Details of Rahul's order")
    - Entities: { orderId?, orderNumber?, customerName? }
-10. ORDER_ACCEPT: Accept order ("Accept order #1234", "Accept latest order")
+13. ORDER_ACCEPT: Accept order ("Accept order #1234", "Accept latest order")
     - Entities: { orderId?, orderNumber? }
-11. ORDER_REJECT: Reject order ("Reject order #1234 because material unavailable")
+14. ORDER_REJECT: Reject order ("Reject order #1234 because material unavailable")
     - Entities: { orderId?, orderNumber?, reason? }
-12. ORDER_COMPLETE: Mark order complete ("Mark order #1234 as completed", "Kaam poora ho gaya")
+15. ORDER_COMPLETE: Mark order complete ("Mark order #1234 as completed", "Kaam poora ho gaya")
     - Entities: { orderId?, orderNumber? }
-13. PAYMENT_SUMMARY: Total earnings / how much earned ("How much have I earned?", "Total earnings", "Meri kamai", "Kitne kamaye")
-14. PAYMENT_PENDING: Pending payments ("Which payments are pending?", "Kitne paise aane baaki hain?")
-15. PAYMENT_HISTORY: Payment history ("Show payment history", "Payouts record")
-16. DASHBOARD_SUMMARY: Business summary / analytics ("Give me a summary of my business", "How is business doing?", "Karobar kaisa hai?")
-17. FIND_INDUSTRIALISTS: Search industrialists / projects ("Find industrialists looking for furniture", "Factory wale dhoondo", "Open projects")
+16. PAYMENT_SUMMARY: Total earnings / how much earned ("How much have I earned?", "Total earnings", "Meri kamai", "Kitne kamaye")
+17. PAYMENT_PENDING: Pending payments ("Which payments are pending?", "Kitne paise aane baaki hain?")
+18. PAYMENT_HISTORY: Payment history ("Show payment history", "Payouts record")
+19. DASHBOARD_SUMMARY: Business summary / analytics ("Give me a summary of my business", "How is business doing?", "Karobar kaisa hai?")
+20. FIND_INDUSTRIALISTS: Search industrialists / projects ("Find industrialists looking for furniture", "Factory wale dhoondo", "Open projects")
     - Entities: { query?, category? }
-18. COLLABORATION_REQUESTS: View business requests / proposals ("Show collaboration requests", "New enquiries")
-19. COLLABORATION_ACCEPT: Accept project proposal ("Accept project #123", "Accept latest collaboration")
+21. COLLABORATION_REQUESTS: View business requests / proposals ("Show collaboration requests", "New enquiries")
+22. COLLABORATION_ACCEPT: Accept project proposal ("Accept project #123", "Accept latest collaboration")
     - Entities: { projectId?, title? }
-20. NOTIFICATIONS_GET: Check notifications ("Show notifications", "Any new alerts?")
-21. HELP: Help on features ("How to add product?", "How do payments work?")
-22. AFFIRMATION: Confirmation ("Yes", "Haan", "Confirm", "Sahi hai", "Theek hai", "ਹਾਂ")
-23. NEGATION: Rejection / cancellation ("No", "Cancel", "Nahi", "Mat karo", "ਰੱਦ ਕਰੋ", "ਨਹੀਂ")
-24. LOGIN_HELP: Help with logging in ("How to login", "Artisan login", "Customer login", "ਲੌਗਇਨ ਕਰੋ") - Entities: { role?: "artisan" | "customer" | "expert" | "industry" }
-25. SIGNUP_HELP: Help registering or starting voice registration ("Register as artisan", "Voice signup", "ਰਜਿਸਟਰ ਕਰੋ", "Account banana hai") - Entities: { role?: "artisan" | "customer" | "expert" | "industry", isVoice?: boolean }
-26. NAVIGATE: Navigate across platform ("Go to marketplace", "Craft courses", "About us", "ਮਾਰਕੀਟਪਲੇਸ") - Entities: { destination?: "marketplace" | "courses" | "about" | "artisans" }
-27. UNKNOWN: Unrelated or general conversation.
+23. NOTIFICATIONS_GET: Check notifications ("Show notifications", "Any new alerts?")
+24. HELP: Help on features ("How to add product?", "How do payments work?")
+25. AFFIRMATION: Confirmation ("Yes", "Haan", "Confirm", "Sahi hai", "Theek hai", "ਹਾਂ", "हाँ")
+26. NEGATION: Rejection / cancellation ("No", "Cancel", "Nahi", "Mat karo", "ਰੱਦ ਕਰੋ", "ਨਹੀਂ", "नहीं", "रद्द करें")
+27. LOGIN_HELP: Help with logging in ("How to login", "Artisan login", "Customer login", "ਲੌਗਇਨ ਕਰੋ") - Entities: { role?: "artisan" | "customer" | "expert" | "industry" }
+28. SIGNUP_HELP: Help registering or starting voice registration ("Register as artisan", "Voice signup", "ਰਜਿਸਟਰ ਕਰੋ", "Account banana hai") - Entities: { role?: "artisan" | "customer" | "expert" | "industry", isVoice?: boolean }
+29. NAVIGATE: Navigate across platform ("Go to marketplace", "Craft courses", "About us", "ਮਾਰਕੀਟਪਲੇਸ") - Entities: { destination?: "marketplace" | "courses" | "about" | "artisans" }
+30. UNKNOWN: Unrelated or general conversation.
 
 RETURN JSON SCHEMA ONLY:
 {
@@ -84,11 +88,11 @@ RETURN JSON SCHEMA ONLY:
 /**
  * Call Gemini to parse intent
  */
-async function callGeminiForIntent(message, artisanContext = {}) {
+async function callGeminiForIntent(message, artisanContext = {}, userLanguage = "pa") {
   const geminiKey = getGeminiKey();
   if (!geminiKey) throw new Error("No Gemini API key");
 
-  const prompt = `${buildAssistantSystemPrompt(artisanContext)}
+  const prompt = `${buildAssistantSystemPrompt(artisanContext, userLanguage)}
 
 USER SPOKEN COMMAND:
 "${message}"
@@ -118,11 +122,11 @@ Extract JSON only.`;
 /**
  * Call Groq to parse intent
  */
-async function callGroqForIntent(message, artisanContext = {}) {
+async function callGroqForIntent(message, artisanContext = {}, userLanguage = "pa") {
   const groqKey = getGroqKey();
   if (!groqKey) throw new Error("No Groq API key");
 
-  const systemPrompt = buildAssistantSystemPrompt(artisanContext);
+  const systemPrompt = buildAssistantSystemPrompt(artisanContext, userLanguage);
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -150,14 +154,14 @@ async function callGroqForIntent(message, artisanContext = {}) {
  * Comprehensive Deterministic NLP Fallback
  * Works reliably for English, Hindi, Hinglish, and Punjabi commands
  */
-export function deterministicIntentMatcher(message = "") {
+export function deterministicIntentMatcher(message = "", userLanguage = "pa") {
   const raw = message.trim();
   const lower = raw.toLowerCase();
 
-  // Language detection
+  // Language detection: prioritize explicit script, fallback to userLanguage
   const hasGurmukhi = /[\u0A00-\u0A7F]/.test(raw);
   const hasDevanagari = /[\u0900-\u097F]/.test(raw);
-  const detectedLanguage = hasGurmukhi ? "pa" : hasDevanagari ? "hi" : "en";
+  const detectedLanguage = hasGurmukhi ? "pa" : hasDevanagari ? "hi" : (userLanguage || "en");
 
   // Check Affirmation / Negation
   if (
@@ -188,6 +192,59 @@ export function deterministicIntentMatcher(message = "") {
     raw.includes("रद्द")
   ) {
     return { intent: "NEGATION", entities: {}, detectedLanguage, confidence: 0.99 };
+  }
+
+  // 1. GUIDED WORKFLOW OPTIONS
+  if (
+    lower.includes("create my shop") ||
+    lower.includes("create shop") ||
+    lower.includes("open my shop") ||
+    lower.includes("open shop") ||
+    lower.includes("setup shop") ||
+    lower.includes("make shop") ||
+    lower.includes("start shop") ||
+    lower.includes("meri dukan") ||
+    lower.includes("dukan bana") ||
+    lower.includes("dukaan bana") ||
+    lower.includes("shop bana") ||
+    raw.includes("ਮੇਰੀ ਦੁਕਾਨ ਬਣਾਓ") ||
+    raw.includes("ਦੁਕਾਨ ਬਣਾਓ") ||
+    raw.includes("ਦੁਕਾਨ ਬਣਾਉਣੀ") ||
+    raw.includes("मेरी दुकान बनाएँ") ||
+    raw.includes("दुकान बनाएँ") ||
+    raw.includes("दुकान बनानी है") ||
+    raw.includes("दुकान खोल")
+  ) {
+    return { intent: "START_GUIDED_SHOP", entities: {}, detectedLanguage, confidence: 0.98 };
+  }
+
+  if (
+    lower === "add a product" ||
+    lower === "add product" ||
+    lower === "new product" ||
+    lower === "list product" ||
+    lower.includes("add a product") ||
+    lower.includes("add new product") ||
+    lower.includes("naya product") ||
+    lower.includes("product add") ||
+    lower.includes("product jodna") ||
+    lower.includes("utpaad jodo") ||
+    raw.includes("ਉਤਪਾਦ ਜੋੜੋ") ||
+    raw.includes("ਨਵਾਂ ਉਤਪਾਦ") ||
+    raw.includes("उत्पाद जोड़ें") ||
+    raw.includes("नया उत्पाद")
+  ) {
+    return { intent: "START_GUIDED_PRODUCT", entities: {}, detectedLanguage, confidence: 0.98 };
+  }
+
+  if (
+    lower.includes("ask me anything") ||
+    lower.includes("ask anything") ||
+    lower.includes("kuch bhi poocho") ||
+    raw.includes("ਕੁਝ ਵੀ ਪੁੱਛੋ") ||
+    raw.includes("कुछ भी पूछें")
+  ) {
+    return { intent: "ASK_ME_ANYTHING", entities: {}, detectedLanguage, confidence: 0.98 };
   }
 
   // GREETINGS & SOCIAL INTENTS
@@ -680,10 +737,10 @@ export function deterministicIntentMatcher(message = "") {
 /**
  * Main intent extraction pipeline
  */
-export async function parseArtisanIntent(message, artisanContext = {}) {
+export async function parseArtisanIntent(message, artisanContext = {}, userLanguage = "pa") {
   const trimmed = (message || "").trim();
   if (!trimmed) {
-    return { intent: "UNKNOWN", entities: {}, detectedLanguage: "en", confidence: 0 };
+    return { intent: "UNKNOWN", entities: {}, detectedLanguage: userLanguage || "en", confidence: 0 };
   }
 
   let result = null;
@@ -695,7 +752,7 @@ export async function parseArtisanIntent(message, artisanContext = {}) {
 
   if (provider === "groq" && groqKey) {
     try {
-      result = await callGroqForIntent(trimmed, artisanContext);
+      result = await callGroqForIntent(trimmed, artisanContext, userLanguage);
     } catch (e) {
       console.warn("Groq intent parsing failed, falling back:", e.message);
     }
@@ -703,7 +760,7 @@ export async function parseArtisanIntent(message, artisanContext = {}) {
 
   if (!result && geminiKey) {
     try {
-      result = await callGeminiForIntent(trimmed, artisanContext);
+      result = await callGeminiForIntent(trimmed, artisanContext, userLanguage);
     } catch (e) {
       console.warn("Gemini intent parsing failed, falling back:", e.message);
     }
@@ -711,7 +768,11 @@ export async function parseArtisanIntent(message, artisanContext = {}) {
 
   // Fallback to deterministic NLP matcher
   if (!result || !result.intent) {
-    result = deterministicIntentMatcher(trimmed);
+    result = deterministicIntentMatcher(trimmed, userLanguage);
+  }
+
+  if (result && !result.detectedLanguage) {
+    result.detectedLanguage = userLanguage || "pa";
   }
 
   return result;

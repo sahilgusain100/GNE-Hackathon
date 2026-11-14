@@ -3,18 +3,27 @@ import {
   AlertCircle,
   ArrowRight,
   Bot,
+  Camera,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   ExternalLink,
+  HelpCircle,
+  Image as ImageIcon,
+  Loader2,
   Mic,
   Package,
+  PackagePlus,
   RotateCcw,
   Send,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  Store,
   Trash2,
+  UploadCloud,
   Volume2,
   VolumeX,
   X,
@@ -22,6 +31,20 @@ import {
 import RobotAvatar from './RobotAvatar'
 import VoiceWaveform from './VoiceWaveform'
 import { sendVoiceAssistantMessageApi } from '../../services/voice-api'
+import {
+  getArtisanShopApi,
+  saveArtisanShopApi,
+  createArtisanListingApi,
+  publishArtisanListingApi,
+} from '../../services/artisan-api'
+import {
+  SHOP_QUESTIONS,
+  PRODUCT_QUESTIONS,
+  MASCOT_UI,
+  formatProgress,
+  validatePriceInput,
+  validateStockInput,
+} from '../../utils/mascot-translations'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuthDialog } from '../../hooks/useAuthDialog'
 
@@ -38,72 +61,103 @@ const LANGUAGES = [
 ]
 
 function getWelcomeContent(lang, activeUser, path = '') {
-  if (activeUser?.accountType === 'artisan') {
+  const isArtisan = activeUser?.accountType === 'artisan'
+  const isCustomer = activeUser?.accountType === 'customer'
+  const isIndustry = activeUser?.accountType === 'industry'
+  const name = activeUser?.name ? ` ${activeUser.name} ji` : ''
+
+  if (isArtisan) {
+    if (lang === 'pa') {
+      return {
+        text: `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ${name}! ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ AI ਮੈਸਕੌਟ ਹਾਂ। ਤੁਸੀਂ ਆਸਾਨੀ ਨਾਲ ਆਪਣੀ ਦੁਕਾਨ ਬਣਾ ਸਕਦੇ ਹੋ, ਨਵਾਂ ਉਤਪਾਦ ਜੋੜ ਸਕਦੇ ਹੋ, ਜਾਂ ਕੋਈ ਵੀ ਸਵਾਲ ਪੁੱਛ ਸਕਦੇ ਹੋ। ਹੇਠਾਂ ਦਿੱਤੇ ਵਿਕਲਪਾਂ ਵਿੱਚੋਂ ਚੁਣੋ:`,
+        speechText: `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ${name}! ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ AI ਮੈਸਕੌਟ ਹਾਂ। ਦੱਸੋ ਅੱਜ ਮੈਂ ਕੀ ਮਦਦ ਕਰਾਂ?`,
+      }
+    }
+    if (lang === 'hi') {
+      return {
+        text: `नमस्ते${name}! मैं आपका स्किलब्रिज AI मैस्कॉट हूँ। आप आसानी से अपनी दुकान बना सकते हैं, नया उत्पाद जोड़ सकते हैं, या कोई भी सवाल पूछ सकते हैं। नीचे दिए गए विकल्पों में से चुनें:`,
+        speechText: `नमस्ते${name}! मैं आपका स्किलब्रिज AI मैस्कॉट हूँ। बताइए आज मैं आपकी क्या मदद करूँ?`,
+      }
+    }
     return {
-      text:
-        lang === 'pa'
-          ? `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ${activeUser.name} ਜੀ! ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ AI ਮੈਸਕੌਟ ਹਾਂ। ਤੁਸੀਂ ਮੈਨੂੰ ਆਵਾਜ਼ ਵਿੱਚ ਕਹਿ ਸਕਦੇ ਹੋ: 'ਨਵਾਂ ਉਤਪਾਦ ਜੋੜੋ', 'ਪੈਂਡਿੰਗ ਆਰਡਰ ਦਿਖਾਓ', 'ਮੇਰੀ ਕਮਾਈ', ਜਾਂ 'ਉਦਯੋਗ ਪ੍ਰੋਜੈਕਟ ਲੱਭੋ'!`
-          : lang === 'hi'
-          ? `नमस्ते ${activeUser.name} जी! मैं आपका स्किलब्रिज AI सहायक हूँ। आप बोल सकते हैं: 'नया उत्पाद जोड़ो', 'पेंडिंग ऑर्डर बताओ', 'मेरी कमाई', या 'उद्योग प्रोजेक्ट ढूँढो'!`
-          : `Hello ${activeUser.name}! I am your SkillBridge AI Mascot. You can speak commands like 'Add product', 'Check pending orders', 'What are my earnings?', or 'Find industrialists'!`,
-      speechText:
-        lang === 'pa'
-          ? `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ${activeUser.name} ਜੀ! ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ AI ਮੈਸਕੌਟ ਹਾਂ। ਦੱਸੋ ਅੱਜ ਮੈਂ ਕੀ ਮਦਦ ਕਰਾਂ?`
-          : `Hello ${activeUser.name}! I am your assistant. How can I help you today?`,
+      text: `Hello${name}! I am your SkillBridge AI Mascot. You can easily set up your shop, list handmade products, or ask me anything. Choose from the options below:`,
+      speechText: `Hello${name}! I am your SkillBridge AI assistant. How can I help you today?`,
     }
   }
 
-  if (activeUser?.accountType === 'customer') {
+  if (isCustomer) {
+    if (lang === 'pa') {
+      return {
+        text: `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ${name}! ਮੈਂ ਸਕਿੱਲਬ੍ਰਿਜ ਦਾ AI ਮੈਸਕੌਟ ਹਾਂ। ਤੁਸੀਂ ਮੈਨੂੰ ਉਤਪਾਦ ਖੋਜਣ, ਆਰਡਰ ਟ੍ਰੈਕ ਕਰਨ ਜਾਂ ਗਾਹਕ ਸਹਾਇਤਾ ਲਈ ਕਹਿ ਸਕਦੇ ਹੋ।`,
+        speechText: `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ${name}! ਮੈਂ ਤੁਹਾਡੀ ਹਰ ਕੰਮ ਵਿੱਚ ਮਦਦ ਕਰਾਂਗਾ।`,
+      }
+    }
+    if (lang === 'hi') {
+      return {
+        text: `नमस्ते${name}! मैं स्किलब्रिज का AI मैस्कॉट हूँ। आप मुझसे हस्तशिल्प खोजने, ऑर्डर ट्रैक करने या सहायता केंद्र के लिए बोल सकते हैं।`,
+        speechText: `नमस्ते${name}! मैं हस्तशिल्प खोजने और ऑर्डर में आपकी पूरी मदद करूँगा।`,
+      }
+    }
     return {
-      text:
-        lang === 'pa'
-          ? `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ${activeUser.name} ਜੀ! ਮੈਂ ਸਕਿੱਲਬ੍ਰਿਜ ਦਾ AI ਮੈਸਕੌਟ ਹਾਂ। ਤੁਸੀਂ ਮੈਨੂੰ ਉਤਪਾਦ ਖੋਜਣ ('ਫੁਲਕਾਰੀ ਦਿਖਾਓ'), ਆਰਡਰ ਟ੍ਰੈਕ ਕਰਨ ('ਮੇਰਾ ਆਰਡਰ ਟ੍ਰੈਕ ਕਰੋ'), ਜਾਂ ਗਾਹਕ ਸਹਾਇਤਾ ਲਈ ਕਹਿ ਸਕਦੇ ਹੋ!`
-          : lang === 'hi'
-          ? `नमस्ते ${activeUser.name} जी! मैं आपका स्किलब्रिज AI सहायक हूँ। आप मुझसे हस्तशिल्प खोजने, ऑर्डर ट्रैक करने, या सहायता केंद्र के लिए बोल सकते हैं!`
-          : `Hello ${activeUser.name}! I am your SkillBridge AI Mascot. You can ask me to discover handmade crafts, track your delivery status, or get help with returns and customer support!`,
-      speechText:
-        lang === 'pa'
-          ? `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ${activeUser.name} ਜੀ! ਮੈਂ ਤੁਹਾਡੀ ਹਰ ਕੰਮ ਵਿੱਚ ਮਦਦ ਕਰਾਂਗਾ।`
-          : `Hello ${activeUser.name}! I am your craft assistant. How can I help you today?`,
+      text: `Hello${name}! I am your SkillBridge AI Mascot. You can ask me to discover authentic crafts, track deliveries, or get customer support!`,
+      speechText: `Hello${name}! I am your craft assistant. How can I help you today?`,
     }
   }
 
   if (path.includes('/artisan/auth')) {
+    if (lang === 'pa') {
+      return {
+        text: 'ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ਜੀ! ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ AI ਮੈਸਕੌਟ ਹਾਂ। ਤੁਸੀਂ ਦਸਤਕਾਰ ਵਜੋਂ ਬੋਲ ਕੇ ਰਜਿਸਟਰ ਕਰ ਸਕਦੇ ਹੋ ਜਾਂ ਲੌਗਇਨ ਮਦਦ ਲੈ ਸਕਦੇ ਹੋ।',
+        speechText: 'ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ਜੀ! ਕੀ ਤੁਸੀਂ ਦਸਤਕਾਰ ਵਜੋਂ ਰਜਿਸਟਰ ਕਰਨਾ ਜਾਂ ਲੌਗਇਨ ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ?',
+      }
+    }
+    if (lang === 'hi') {
+      return {
+        text: 'नमस्ते जी! मैं आपका स्किलब्रिज सहायक हूँ। आप बोलकर कारीगर रजिस्ट्रेशन कर सकते हैं या लॉगिन सहायता ले सकते हैं।',
+        speechText: 'नमस्ते जी! क्या आप बोलकर रजिस्ट्रेशन या लॉगिन करना चाहते हैं?',
+      }
+    }
     return {
-      text:
-        lang === 'pa'
-          ? "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ਜੀ! ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ ਮੈਸਕੌਟ ਤੇ ਸਹਾਇਕ ਹਾਂ। ਕੀ ਤੁਸੀਂ ਦਸਤਕਾਰ ਵਜੋਂ ਬੋਲ ਕੇ ਰਜਿਸਟਰ ਕਰਨਾ ਜਾਂ ਲੌਗਇਨ ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ? ਮੈਂ ਤੁਹਾਡੀ ਹਰ ਕੰਮ ਵਿੱਚ ਮਦਦ ਕਰਾਂਗਾ।"
-          : lang === 'hi'
-          ? "नमस्ते जी! मैं आपका स्किलब्रिज सहायक हूँ। क्या आप बोलकर रजिस्ट्रेशन या लॉगिन करना चाहते हैं? मैं आपकी पूरी मदद करूँगा।"
-          : "Hello! Welcome to Artisan Onboarding. You can register hands-free simply by speaking in Punjabi, Hindi, or English, or ask for login assistance.",
-      speechText:
-        lang === 'pa'
-          ? "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ਜੀ! ਕੀ ਤੁਸੀਂ ਦਸਤਕਾਰ ਵਜੋਂ ਰਜਿਸਟਰ ਕਰਨਾ ਜਾਂ ਲੌਗਇਨ ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ? ਮੈਂ ਤੁਹਾਡੀ ਮਦਦ ਕਰਾਂਗਾ।"
-          : "Hello! Need help logging in or registering by voice? Talk to me directly.",
+      text: 'Hello! Welcome to Artisan Onboarding. You can register hands-free simply by speaking, or get login help.',
+      speechText: 'Hello! Need help logging in or registering by voice? Talk to me directly.',
     }
   }
 
-  if (path.includes('/industry/auth') || activeUser?.accountType === 'industry') {
+  if (isIndustry || path.includes('/industry/auth')) {
+    if (lang === 'pa') {
+      return {
+        text: 'ਜੀ ਆਇਆਂ ਨੂੰ! ਉਦਯੋਗਿਕ ਭਾਈਵਾਲੀ, ਬਲਕ ਦਸਤਕਾਰੀ ਆਰਡਰਾਂ ਜਾਂ ਕੰਟਰੈਕਟਾਂ ਬਾਰੇ ਕੁਝ ਵੀ ਪੁੱਛੋ।',
+        speechText: 'ਜੀ ਆਇਆਂ ਨੂੰ! ਉਦਯੋਗਿਕ ਪ੍ਰੋਜੈਕਟਾਂ ਬਾਰੇ ਕੁਝ ਵੀ ਪੁੱਛੋ।',
+      }
+    }
+    if (lang === 'hi') {
+      return {
+        text: 'स्वागत है! औद्योगिक साझेदारी, थोक कारीगर अनुबंधों या प्रोजेक्ट्स के बारे में कुछ भी पूछें।',
+        speechText: 'स्वागत है! औद्योगिक प्रोजेक्ट्स में आपकी क्या मदद करूँ?',
+      }
+    }
     return {
-      text:
-        lang === 'pa'
-          ? "ਜੀ ਆਇਆਂ ਨੂੰ! ਉਦਯੋਗਿਕ ਭਾਈਵਾਲੀ, ਬਲਕ ਆਰਡਰਾਂ ਜਾਂ ਦਸਤਕਾਰਾਂ ਨਾਲ ਸਿੱਧੇ ਕੰਟਰੈਕਟਾਂ ਬਾਰੇ ਕੁਝ ਵੀ ਪੁੱਛੋ।"
-          : "Welcome Industry Partners! Ask me about B2B collaborations, bulk artisan contracts, or logging in.",
-      speechText: "Welcome! How can I assist you with industrial partnerships today?",
+      text: 'Welcome Industry Partners! Ask me about B2B artisan contracts, bulk orders, or logging in.',
+      speechText: 'Welcome! How can I assist you with industrial partnerships today?',
     }
   }
 
+  // Default guest welcome
+  if (lang === 'pa') {
+    return {
+      text: 'ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ਜੀ! ਮੈਂ ਸਕਿੱਲਬ੍ਰਿਜ ਦਾ 24/7 AI ਮੈਸਕੌਟ ਹਾਂ। ਤੁਸੀਂ ਮੈਨੂੰ ਉਤਪਾਦ ਖੋਜਣ, ਆਰਡਰ ਟ੍ਰੈਕ ਕਰਨ, ਬੋਲ ਕੇ ਰਜਿਸਟਰ ਕਰਨ, ਜਾਂ ਦੁਕਾਨ ਸੰਭਾਲਣ ਲਈ ਕਹਿ ਸਕਦੇ ਹੋ।',
+      speechText: 'ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ਜੀ! ਮੈਂ ਸਕਿੱਲਬ੍ਰਿਜ ਸਹਾਇਕ ਹਾਂ। ਮੈਂ ਤੁਹਾਡੀ ਹਰ ਕੰਮ ਵਿੱਚ ਮਦਦ ਕਰਾਂਗਾ।',
+    }
+  }
+  if (lang === 'hi') {
+    return {
+      text: 'नमस्ते जी! मैं स्किलब्रिज का 24/7 AI मैस्कॉट हूँ। आप मुझसे हस्तशिल्प खोजने, ऑर्डर ट्रैक करने, बोलकर कारीगर रजिस्ट्रेशन, या दुकान संभालने के बारे में पूछ सकते हैं।',
+      speechText: 'नमस्ते जी! मैं आपका स्किलब्रिज सहायक हूँ। बताइए आज क्या सेवा करूँ?',
+    }
+  }
   return {
-    text:
-      lang === 'pa'
-        ? "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ਜੀ! ਮੈਂ ਸਕਿੱਲਬ੍ਰਿਜ ਦਾ 24/7 AI ਮੈਸਕੌਟ ਹਾਂ। ਤੁਸੀਂ ਮੈਨੂੰ ਉਤਪਾਦ ਖੋਜਣ, ਆਰਡਰ ਟ੍ਰੈਕ ਕਰਨ, ਬੋਲ ਕੇ ਰਜਿਸਟਰ ਕਰਨ, ਜਾਂ ਗਾਹਕ ਸਹਾਇਤਾ ਲਈ ਕਹਿ ਸਕਦੇ ਹੋ।"
-        : lang === 'hi'
-        ? "नमस्ते जी! मैं स्किलब्रिज का 24/7 AI मैस्कॉट हूँ। आप मुझसे हस्तशिल्प खोजने, ऑर्डर ट्रैक करने, बोलकर कारीगर रजिस्ट्रेशन, या सहायता के बारे में पूछ सकते हैं।"
-        : "Hello! I am your SkillBridge AI Mascot & Assistant. Ask me how to discover authentic crafts, track deliveries, register hands-free as an artisan, or get 24/7 support!",
-    speechText:
-      lang === 'pa'
-        ? "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ਜੀ! ਮੈਂ ਸਕਿੱਲਬ੍ਰਿਜ ਸਹਾਇਕ ਹਾਂ। ਮੈਂ ਤੁਹਾਡੀ ਹਰ ਕੰਮ ਵਿੱਚ ਮਦਦ ਕਰਾਂਗਾ।"
-        : "Hello! I am your SkillBridge assistant. I can help you with anything across the platform.",
+    text: 'Hello! I am your SkillBridge AI Mascot & Assistant. Ask me how to discover authentic crafts, track deliveries, register hands-free as an artisan, or manage your shop!',
+    speechText: 'Hello! I am your SkillBridge assistant. How can I help you today?',
   }
 }
 
@@ -115,6 +169,31 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
 
   const activeUser = propUser || currentUser
   const pathname = location?.pathname || ''
+
+  // Mode: 'AMA' (freeform Q&A) | 'GUIDED_SHOP' | 'GUIDED_PRODUCT'
+  const [mode, setMode] = useState('AMA')
+
+  // Guided Flow State
+  const [guidedStep, setGuidedStep] = useState(0)
+  const [guidedAnswers, setGuidedAnswers] = useState({})
+  const [guidedImageFile, setGuidedImageFile] = useState(null)
+  const [guidedImagePreview, setGuidedImagePreview] = useState(null)
+  const [guidedError, setGuidedError] = useState('')
+  const [isShowingPreview, setIsShowingPreview] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [artisanShop, setArtisanShop] = useState(null)
+  const [isLoadingShop, setIsLoadingShop] = useState(false)
+
+  // Audio & Animation states
+  const [robotState, setRobotState] = useState('idle') // 'idle' | 'speaking' | 'listening' | 'processing'
+  const [isMouthMoving, setIsMouthMoving] = useState(false)
+  const [lastSpokenText, setLastSpokenText] = useState('')
+  const [micError, setMicError] = useState('')
+  const [isMuted, setIsMuted] = useState(false)
+  const [copiedId, setCopiedId] = useState(null)
+  const [inputMessage, setInputMessage] = useState('')
+  const [liveTranscript, setLiveTranscript] = useState('')
+  const [pendingAction, setPendingAction] = useState(null)
 
   const initialWelcome = useMemo(() => {
     const welcome = getWelcomeContent(language, activeUser, pathname)
@@ -129,47 +208,26 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
   }, [language, activeUser, pathname])
 
   const [messages, setMessages] = useState([initialWelcome])
-  const [inputMessage, setInputMessage] = useState('')
-  const [liveTranscript, setLiveTranscript] = useState('')
-  const [robotState, setRobotState] = useState('idle') // 'idle' | 'speaking' | 'listening' | 'processing' | 'success'
-  const [isMouthMoving, setIsMouthMoving] = useState(false)
-  const [pendingAction, setPendingAction] = useState(null)
-  const [lastSpokenText, setLastSpokenText] = useState('')
-  const [micError, setMicError] = useState('')
-  const [isMuted, setIsMuted] = useState(false)
-  const [copiedId, setCopiedId] = useState(null)
 
-  // Auto-scroll chat to bottom
   const chatBottomRef = useRef(null)
   const recognitionRef = useRef(null)
   const isListeningRef = useRef(false)
   const isSpeakingRef = useRef(false)
+  const fileInputRef = useRef(null)
 
-  // Refresh welcome message if opened on a new page or language changed
+  // Fetch active artisan shop on open or when activeUser changes
   useEffect(() => {
-    if (isOpen) {
-      setMessages((prev) => {
-        if (prev.length <= 1) {
-          const fresh = getWelcomeContent(language, activeUser, pathname)
-          return [
-            {
-              id: 'welcome',
-              sender: 'assistant',
-              text: fresh.text,
-              speechText: fresh.speechText,
-              actionData: null,
-              timestamp: new Date(),
-            },
-          ]
-        }
-        return prev
-      })
+    if (isOpen && activeUser?.accountType === 'artisan') {
+      setIsLoadingShop(true)
+      getArtisanShopApi()
+        .then((res) => {
+          if (res?.shop) setArtisanShop(res.shop)
+          else setArtisanShop(null)
+        })
+        .catch(() => setArtisanShop(null))
+        .finally(() => setIsLoadingShop(false))
     }
-  }, [isOpen, language, activeUser, pathname])
-
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, liveTranscript, pendingAction])
+  }, [isOpen, activeUser])
 
   // Stop all audio & speech recognition
   const stopAudio = useCallback(() => {
@@ -203,7 +261,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
       isSpeakingRef.current = true
       setLastSpokenText(text)
 
-      // Clean speech text thoroughly (no markdown stars, links, brackets)
+      // Clean speech text thoroughly
       const cleanSpoken = text
         .replace(/[*_#`~[\]()]/g, '')
         .replace(/https?:\/\/\S+/g, '')
@@ -216,7 +274,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
       utterance.rate = 0.95
       utterance.pitch = 1.05
 
-      // Select regional voice
+      // Select matching regional voice
       const voices = window.speechSynthesis.getVoices()
       const langPrefix = language === 'pa' ? 'pa' : language === 'hi' ? 'hi' : 'en'
       const matched = voices.find(
@@ -251,7 +309,6 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
         if (onComplete) onComplete()
       }
 
-      // Safety duration timeout
       const duration = Math.max(3000, cleanSpoken.length * 85)
       setTimeout(() => {
         if (isSpeakingRef.current) {
@@ -266,7 +323,568 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
     [isMuted, language, stopAudio]
   )
 
-  // Send message to backend assistant
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, liveTranscript, pendingAction, isShowingPreview, mode, guidedStep])
+
+  // Current active questions list based on mode
+  const currentQuestions = useMemo(() => {
+    if (mode === 'GUIDED_SHOP') return SHOP_QUESTIONS
+    if (mode === 'GUIDED_PRODUCT') return PRODUCT_QUESTIONS
+    return []
+  }, [mode])
+
+  const activeQuestion = useMemo(() => {
+    if (!currentQuestions || currentQuestions.length === 0) return null
+    return currentQuestions[guidedStep] || null
+  }, [currentQuestions, guidedStep])
+
+  // When language changes: immediately refresh current view, welcome, or re-speak current question
+  const handleLanguageChange = (newLang) => {
+    stopAudio()
+    setLanguage(newLang)
+
+    if (mode === 'AMA') {
+      const fresh = getWelcomeContent(newLang, activeUser, pathname)
+      setMessages((prev) => {
+        if (prev.length <= 1) {
+          return [
+            {
+              id: 'welcome',
+              sender: 'assistant',
+              text: fresh.text,
+              speechText: fresh.speechText,
+              actionData: null,
+              timestamp: new Date(),
+            },
+          ]
+        }
+        return prev
+      })
+    } else if (activeQuestion) {
+      const prompt = activeQuestion.prompts[newLang]
+      if (prompt?.spoken) {
+        speakResponse(prompt.spoken)
+      }
+    }
+  }
+
+  // Launch Guided Shop Creation
+  const handleStartShopCreation = () => {
+    stopAudio()
+    setMode('GUIDED_SHOP')
+    setGuidedStep(0)
+    setGuidedAnswers({})
+    setGuidedImageFile(null)
+    setGuidedImagePreview(null)
+    setGuidedError('')
+    setIsShowingPreview(false)
+
+    const q1 = SHOP_QUESTIONS[0]
+    const spoken = q1.prompts[language].spoken
+    const display = q1.prompts[language].display
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `assistant-mode-shop-${Date.now()}`,
+        sender: 'assistant',
+        text: `🏪 ${MASCOT_UI.options.createShop[language]}\n\n${formatProgress(1, SHOP_QUESTIONS.length, language)}\n${display}`,
+        speechText: spoken,
+        timestamp: new Date(),
+      },
+    ])
+    speakResponse(spoken)
+  }
+
+  // Launch Guided Product Creation
+  const handleStartProductCreation = () => {
+    stopAudio()
+
+    if (!activeUser) {
+      const reqLogin = MASCOT_UI.feedback.loginRequired[language]
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-login-req-${Date.now()}`,
+          sender: 'assistant',
+          text: reqLogin,
+          speechText: reqLogin,
+          timestamp: new Date(),
+        },
+      ])
+      speakResponse(reqLogin)
+      return
+    }
+
+    // Check if artisan already has a shop
+    if (!artisanShop) {
+      const noShopNotice = MASCOT_UI.feedback.requireShopFirst[language]
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-no-shop-${Date.now()}`,
+          sender: 'assistant',
+          text: `⚠️ ${noShopNotice}`,
+          speechText: noShopNotice,
+          actionData: {
+            requireShop: true,
+          },
+          timestamp: new Date(),
+        },
+      ])
+      speakResponse(noShopNotice)
+      return
+    }
+
+    setMode('GUIDED_PRODUCT')
+    setGuidedStep(0)
+    setGuidedAnswers({})
+    setGuidedImageFile(null)
+    setGuidedImagePreview(null)
+    setGuidedError('')
+    setIsShowingPreview(false)
+
+    const q1 = PRODUCT_QUESTIONS[0]
+    const spoken = q1.prompts[language].spoken
+    const display = q1.prompts[language].display
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `assistant-mode-product-${Date.now()}`,
+        sender: 'assistant',
+        text: `📦 ${MASCOT_UI.options.addProduct[language]}\n\n${formatProgress(1, PRODUCT_QUESTIONS.length, language)}\n${display}`,
+        speechText: spoken,
+        timestamp: new Date(),
+      },
+    ])
+    speakResponse(spoken)
+  }
+
+  // Switch to AMA freeform mode
+  const handleSwitchToAMA = () => {
+    stopAudio()
+    setMode('AMA')
+    setGuidedError('')
+    setIsShowingPreview(false)
+
+    const msg =
+      language === 'pa'
+        ? '💬 ਤੁਸੀਂ ਕੁਝ ਵੀ ਪੁੱਛ ਸਕਦੇ ਹੋ! ਆਪਣੀ ਦੁਕਾਨ, ਕੀਮਤਾਂ, ਜਾਂ ਆਰਡਰਾਂ ਬਾਰੇ ਕੋਈ ਵੀ ਸਵਾਲ ਪੁੱਛੋ।'
+        : language === 'hi'
+        ? '💬 आप कुछ भी पूछ सकते हैं! अपनी दुकान, कीमतों, या ऑर्डर के बारे में कोई भी प्रश्न पूछिए।'
+        : "💬 Ask Me Anything! You can ask questions about your shop, product pricing, or platform orders."
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `assistant-ama-${Date.now()}`,
+        sender: 'assistant',
+        text: msg,
+        speechText: msg,
+        timestamp: new Date(),
+      },
+    ])
+    speakResponse(msg)
+  }
+
+  // Cancel Guided Workflow
+  const handleCancelWorkflow = () => {
+    stopAudio()
+    setMode('AMA')
+    setGuidedStep(0)
+    setGuidedAnswers({})
+    setGuidedImageFile(null)
+    setGuidedImagePreview(null)
+    setGuidedError('')
+    setIsShowingPreview(false)
+
+    const cancelMsg = MASCOT_UI.feedback.workflowCancelled[language]
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `cancel-${Date.now()}`,
+        sender: 'assistant',
+        text: cancelMsg,
+        speechText: cancelMsg,
+        timestamp: new Date(),
+      },
+    ])
+    speakResponse(cancelMsg)
+  }
+
+  // Go Back to previous guided question
+  const handleGoBack = () => {
+    if (guidedStep > 0) {
+      stopAudio()
+      setGuidedError('')
+      setIsShowingPreview(false)
+      const prevStep = guidedStep - 1
+      setGuidedStep(prevStep)
+
+      const prevQ = currentQuestions[prevStep]
+      const spoken = prevQ.prompts[language].spoken
+      const display = prevQ.prompts[language].display
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `step-back-${Date.now()}`,
+          sender: 'assistant',
+          text: `${formatProgress(prevStep + 1, currentQuestions.length, language)}\n${display}`,
+          speechText: spoken,
+          timestamp: new Date(),
+        },
+      ])
+      speakResponse(spoken)
+    }
+  }
+
+  // Skip current question (allowed if optional or image)
+  const handleSkipQuestion = () => {
+    if (!activeQuestion) return
+    const key = activeQuestion.key
+
+    const updated = {
+      ...guidedAnswers,
+      [key]: '',
+    }
+    setGuidedAnswers(updated)
+    setGuidedError('')
+    proceedToNextQuestion(guidedStep + 1, updated)
+  }
+
+  // Handle Image File Selection
+  const handleImageFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setGuidedImageFile(file)
+    const previewUrl = URL.createObjectURL(file)
+    setGuidedImagePreview(previewUrl)
+    setGuidedError('')
+
+    const updated = {
+      ...guidedAnswers,
+      [activeQuestion.key]: file.name || 'image.jpg',
+    }
+    setGuidedAnswers(updated)
+
+    // User message showing image thumbnail
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `user-img-${Date.now()}`,
+        sender: 'user',
+        text: `📷 [${MASCOT_UI.actions.uploadImage[language]}: ${file.name}]`,
+        imagePreview: previewUrl,
+        timestamp: new Date(),
+      },
+    ])
+
+    proceedToNextQuestion(guidedStep + 1, updated)
+  }
+
+  // Move forward in guided flow
+  const proceedToNextQuestion = (nextIndex, currentAns) => {
+    if (nextIndex >= currentQuestions.length) {
+      // Completed all questions -> Display Preview!
+      setIsShowingPreview(true)
+      const isShop = mode === 'GUIDED_SHOP'
+      const previewMsg = isShop
+        ? language === 'pa'
+          ? 'ਬਹੁਤ ਵਧੀਆ! ਮੇਰੇ ਕੋਲ ਤੁਹਾਡੀ ਦੁਕਾਨ ਦੇ ਸਾਰੇ ਵੇਰਵੇ ਆ ਗਏ ਹਨ। ਕਿਰਪਾ ਕਰਕੇ ਹੇਠਾਂ ਝਲਕ (ਪ੍ਰੀਵਿਊ) ਦੇਖੋ ਅਤੇ ਪੁਸ਼ਟੀ ਕਰੋ:'
+          : language === 'hi'
+          ? 'बहुत बढ़िया! मेरे पास आपकी दुकान के सभी विवरण आ चुके हैं। कृपया नीचे पूर्वावलोकन देखें और पुष्टि करें:'
+          : 'Great! I have collected all your shop details. Please review the preview below and confirm to create your shop:'
+        : language === 'pa'
+        ? 'ਸ਼ਾਨਦਾਰ! ਤੁਹਾਡੇ ਉਤਪਾਦ ਦੇ ਸਾਰੇ ਵੇਰਵੇ ਦਰਜ ਹੋ ਗਏ ਹਨ। ਕਿਰਪਾ ਕਰਕੇ ਹੇਠਾਂ ਪ੍ਰੀਵਿਊ ਚੈੱਕ ਕਰੋ ਅਤੇ ਪਬਲਿਸ਼ ਕਰਨ ਲਈ ਪੁਸ਼ਟੀ ਕਰੋ:'
+        : language === 'hi'
+        ? 'शानदार! आपके उत्पाद के सभी विवरण दर्ज हो गए हैं। कृपया नीचे पूर्वावलोकन देखें और प्रकाशित करने के लिए पुष्टि करें:'
+        : 'Excellent! All product details are ready. Please review the preview card below and confirm to publish:'
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `preview-prompt-${Date.now()}`,
+          sender: 'assistant',
+          text: previewMsg,
+          speechText: previewMsg,
+          timestamp: new Date(),
+        },
+      ])
+      speakResponse(previewMsg)
+      return
+    }
+
+    setGuidedStep(nextIndex)
+    const nextQ = currentQuestions[nextIndex]
+    const spoken = nextQ.prompts[language].spoken
+    const display = nextQ.prompts[language].display
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `step-${nextIndex}-${Date.now()}`,
+        sender: 'assistant',
+        text: `${formatProgress(nextIndex + 1, currentQuestions.length, language)}\n${display}`,
+        speechText: spoken,
+        timestamp: new Date(),
+      },
+    ])
+    speakResponse(spoken)
+  }
+
+  // Answer current guided question
+  const handleAnswerGuidedQuestion = (rawAnswer) => {
+    if (!activeQuestion) return
+    const text = (rawAnswer || inputMessage).trim()
+    if (!text && activeQuestion.required) return
+
+    setGuidedError('')
+
+    // Validation for numbers
+    if (activeQuestion.type === 'number') {
+      if (activeQuestion.key === 'price') {
+        const validated = validatePriceInput(text)
+        if (validated === null) {
+          const err = activeQuestion.prompts[language].error
+          setGuidedError(err)
+          speakResponse(err)
+          return
+        }
+        recordAndAdvance(activeQuestion.key, validated, text)
+        return
+      }
+
+      if (activeQuestion.key === 'stock') {
+        const validated = validateStockInput(text)
+        if (validated === null) {
+          const err = activeQuestion.prompts[language].error
+          setGuidedError(err)
+          speakResponse(err)
+          return
+        }
+        recordAndAdvance(activeQuestion.key, validated, text)
+        return
+      }
+    }
+
+    recordAndAdvance(activeQuestion.key, text, text)
+  }
+
+  const recordAndAdvance = (key, value, displayText) => {
+    setInputMessage('')
+    setLiveTranscript('')
+
+    // User message bubble
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `user-ans-${Date.now()}`,
+        sender: 'user',
+        text: String(displayText),
+        timestamp: new Date(),
+      },
+    ])
+
+    const updated = {
+      ...guidedAnswers,
+      [key]: value,
+    }
+    setGuidedAnswers(updated)
+    proceedToNextQuestion(guidedStep + 1, updated)
+  }
+
+  // Jump back to edit a specific field from preview
+  const handleEditField = (index) => {
+    stopAudio()
+    setIsShowingPreview(false)
+    setGuidedStep(index)
+    setGuidedError('')
+
+    const q = currentQuestions[index]
+    const spoken = q.prompts[language].spoken
+    const display = q.prompts[language].display
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `edit-field-${Date.now()}`,
+        sender: 'assistant',
+        text: `✏️ ${MASCOT_UI.actions.edit[language]}: ${formatProgress(index + 1, currentQuestions.length, language)}\n${display}`,
+        speechText: spoken,
+        timestamp: new Date(),
+      },
+    ])
+    speakResponse(spoken)
+  }
+
+  // Final Confirmation & Submission for Shop
+  const handleConfirmCreateShop = async () => {
+    setIsSaving(true)
+    stopAudio()
+
+    try {
+      const name = (guidedAnswers.name || '').trim()
+      const category = (guidedAnswers.category || 'Handicrafts').trim()
+      const description = `${guidedAnswers.description || ''}${
+        guidedAnswers.speciality ? ` Speciality: ${guidedAnswers.speciality}` : ''
+      }`.trim()
+      const location = (guidedAnswers.location || '').trim()
+
+      let shopRes
+      if (guidedImageFile) {
+        const formData = new FormData()
+        formData.append('name', name)
+        formData.append('category', category)
+        formData.append('description', description || 'Authentic artisan shop')
+        formData.append('location', location)
+        formData.append('logo', guidedImageFile)
+        formData.append('banner', guidedImageFile)
+        shopRes = await saveArtisanShopApi(formData)
+      } else {
+        shopRes = await saveArtisanShopApi({
+          name,
+          category,
+          description: description || 'Authentic artisan shop',
+          location,
+        })
+      }
+
+      if (shopRes?.shop) {
+        setArtisanShop(shopRes.shop)
+      }
+
+      const successMsg = MASCOT_UI.feedback.shopCreatedSuccess[language]
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `success-shop-${Date.now()}`,
+          sender: 'assistant',
+          text: successMsg,
+          speechText: successMsg,
+          actionData: {
+            shopSuccess: true,
+            navigation: {
+              label: MASCOT_UI.actions.viewShop[language],
+              path: '/artisan/profile?tab=shop',
+            },
+          },
+          timestamp: new Date(),
+        },
+      ])
+      speakResponse(successMsg)
+      setIsShowingPreview(false)
+      setMode('AMA')
+    } catch (err) {
+      console.error('Error creating shop:', err)
+      const errMsg = `${MASCOT_UI.feedback.errorOccurred[language]} (${err.message})`
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          sender: 'assistant',
+          text: errMsg,
+          isError: true,
+          timestamp: new Date(),
+        },
+      ])
+      speakResponse(errMsg)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Final Confirmation & Submission for Product
+  const handleConfirmPublishProduct = async () => {
+    setIsSaving(true)
+    stopAudio()
+
+    try {
+      const title = (guidedAnswers.title || '').trim()
+      const category = (guidedAnswers.category || 'Handicrafts').trim()
+      const description = (guidedAnswers.description || '').trim()
+      const price = Number(guidedAnswers.price) || 0
+      const stock = Number(guidedAnswers.stock) || 1
+      const materials = (guidedAnswers.materials || '').trim()
+      const craftTime = (guidedAnswers.craftTime || '').trim()
+
+      let listingRes
+      if (guidedImageFile) {
+        const formData = new FormData()
+        formData.append('title', title)
+        formData.append('category', category)
+        formData.append('description', description)
+        formData.append('price', price)
+        formData.append('stock', stock)
+        formData.append('materials', materials)
+        formData.append('craftTime', craftTime)
+        formData.append('image', guidedImageFile)
+        formData.append('images', guidedImageFile)
+        listingRes = await createArtisanListingApi(formData)
+      } else {
+        listingRes = await createArtisanListingApi({
+          title,
+          category,
+          description,
+          price,
+          stock,
+          materials,
+          craftTime,
+        })
+      }
+
+      const listingId = listingRes?.listing?._id || listingRes?.listing?.id
+      if (listingId) {
+        try {
+          await publishArtisanListingApi(listingId)
+        } catch (_) {}
+      }
+
+      const successMsg = MASCOT_UI.feedback.productPublishedSuccess[language]
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `success-product-${Date.now()}`,
+          sender: 'assistant',
+          text: successMsg,
+          speechText: successMsg,
+          actionData: {
+            productSuccess: true,
+            navigation: {
+              label: MASCOT_UI.actions.viewProduct[language],
+              path: '/artisan/profile?tab=products',
+            },
+          },
+          timestamp: new Date(),
+        },
+      ])
+      speakResponse(successMsg)
+      setIsShowingPreview(false)
+      setMode('AMA')
+    } catch (err) {
+      console.error('Error creating product:', err)
+      const errMsg = `${MASCOT_UI.feedback.errorOccurred[language]} (${err.message})`
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          sender: 'assistant',
+          text: errMsg,
+          isError: true,
+          timestamp: new Date(),
+        },
+      ])
+      speakResponse(errMsg)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Handle general message sending (AMA mode or interruption in guided mode)
   const handleSendMessage = useCallback(
     async (textToSend) => {
       const msg = (textToSend || inputMessage).trim()
@@ -275,6 +893,13 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
       stopAudio()
       setInputMessage('')
       setLiveTranscript('')
+
+      // If currently in a guided workflow question, route input as answer
+      if (mode !== 'AMA' && !isShowingPreview && activeQuestion) {
+        handleAnswerGuidedQuestion(msg)
+        return
+      }
+
       setRobotState('processing')
 
       // Add user message to UI
@@ -303,6 +928,16 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
           throw new Error(res?.message || 'Assistant request failed')
         }
 
+        // Check if backend intent requested starting a guided workflow
+        if (res.actionData?.guidedMode === 'shop') {
+          handleStartShopCreation()
+          return
+        }
+        if (res.actionData?.guidedMode === 'product') {
+          handleStartProductCreation()
+          return
+        }
+
         const assistantMsgObj = {
           id: `assistant-${Date.now()}`,
           sender: 'assistant',
@@ -316,16 +951,10 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
         setPendingAction(res.pendingAction || null)
         setRobotState('idle')
 
-        // Speak response out loud
         speakResponse(res.speechText || res.reply)
       } catch (err) {
         console.error('Assistant error:', err)
-        const errMsg =
-          language === 'pa'
-            ? 'ਮਾਫ਼ ਕਰਨਾ, ਕੋਈ ਤਕਨੀਕੀ ਖਰਾਬੀ ਆਈ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।'
-            : language === 'hi'
-            ? 'क्षमा करें, कोई तकनीकी समस्या आई है। कृपया पुनः प्रयास करें।'
-            : 'Sorry, something went wrong. Please try again.'
+        const errMsg = MASCOT_UI.feedback.errorOccurred[language]
 
         setMessages((prev) => [
           ...prev,
@@ -341,18 +970,18 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
         speakResponse(errMsg)
       }
     },
-    [inputMessage, messages, pendingAction, language, stopAudio, speakResponse]
+    [
+      inputMessage,
+      messages,
+      pendingAction,
+      language,
+      stopAudio,
+      speakResponse,
+      mode,
+      isShowingPreview,
+      activeQuestion,
+    ]
   )
-
-  // Execute initial query if passed
-  useEffect(() => {
-    if (isOpen && initialQuery) {
-      const timer = setTimeout(() => {
-        handleSendMessage(initialQuery)
-      }, 350)
-      return () => clearTimeout(timer)
-    }
-  }, [isOpen, initialQuery, handleSendMessage])
 
   // Start Speech-to-Text Recognition
   const startListening = useCallback(() => {
@@ -367,6 +996,8 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
       setMicError(
         language === 'pa'
           ? 'ਬ੍ਰਾਉਜ਼ਰ ਸਪੀਚ ਰਿਕੋਗਨੀਸ਼ਨ ਦਾ ਸਮਰਥਨ ਨਹੀਂ ਕਰਦਾ। ਕਿਰਪਾ ਕਰਕੇ Google Chrome ਵਰਤੋ ਜਾਂ ਹੇਠਾਂ ਟਾਈਪ ਕਰੋ।'
+          : language === 'hi'
+          ? 'ब्राउज़र स्पीच रिकॉग्निशन का समर्थन नहीं करता। कृपया गूगल क्रोम का उपयोग करें या नीचे टाइप करें।'
           : 'Your browser does not support Speech Recognition. Please use Chrome or type below.'
       )
       return
@@ -413,6 +1044,8 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
           setMicError(
             language === 'pa'
               ? 'ਕਿਰਪਾ ਕਰਕੇ ਮਾਈਕ੍ਰੋਫੋਨ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ ਜੀ।'
+              : language === 'hi'
+              ? 'कृपया माइक्रोफ़ोन की अनुमति दें जी।'
               : 'Please allow microphone access in your browser settings.'
           )
         }
@@ -471,6 +1104,13 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
 
   const handleClearChat = () => {
     stopAudio()
+    setMode('AMA')
+    setGuidedStep(0)
+    setGuidedAnswers({})
+    setGuidedImageFile(null)
+    setGuidedImagePreview(null)
+    setGuidedError('')
+    setIsShowingPreview(false)
     const fresh = getWelcomeContent(language, activeUser, pathname)
     setMessages([
       {
@@ -485,73 +1125,66 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
     setPendingAction(null)
   }
 
-  // Role-aware Suggestion Chips
+  // Suggestion Chips based on user role and language
   const suggestionChips = useMemo(() => {
     if (activeUser?.accountType === 'artisan') {
-      return [
-        { label: '📦 ਨਵਾਂ ਉਤਪਾਦ (Add Product)', command: 'Add a new product' },
-        { label: '📋 ਪੈਂਡਿੰਗ ਆਰਡਰ (Pending Orders)', command: 'Show my pending orders' },
-        { label: '💰 ਕੁੱਲ ਕਮਾਈ (Earnings)', command: 'How much have I earned?' },
-        { label: '🏭 ਉਦਯੋਗ ਪ੍ਰੋਜੈਕਟ (Industries)', command: 'Find industrialists' },
-        { label: '💬 ਸਹਾਇਤਾ ਕੇਂਦਰ (Support)', command: 'Open support' },
-      ]
+      return MASCOT_UI.suggestions.artisan[language] || []
     }
     if (activeUser?.accountType === 'customer') {
-      return [
-        { label: '🛍️ ਉਤਪਾਦ ਦੇਖੋ (Browse Crafts)', command: 'Show me products' },
-        { label: '📦 ਆਰਡਰ ਟ੍ਰੈਕ ਕਰੋ (Track Order)', command: 'Track my order' },
-        { label: '🛡️ ਵਾਪਸੀ ਤੇ ਸਹਾਇਤਾ (Support)', command: 'Help with return or refund' },
-        { label: '❓ ਸਕਿੱਲਬ੍ਰਿਜ ਕੀ ਹੈ? (About)', command: 'What is SkillBridge?' },
-      ]
+      return MASCOT_UI.suggestions.customer[language] || []
     }
-    if (pathname.includes('/artisan/auth')) {
-      return [
-        { label: '🎙️ ਬੋਲ ਕੇ ਰਜਿਸਟਰ ਕਰੋ (Voice Signup)', command: 'I want to register as an artisan' },
-        { label: '🔑 ਲੌਗਇਨ ਕਰੋ (Artisan Login)', command: 'I want to log in as an artisan' },
-        { label: 'ℹ️ ਸਕਿੱਲਬ੍ਰਿਜ ਕੀ ਹੈ? (What is SkillBridge?)', command: 'What is SkillBridge?' },
-      ]
-    }
-    if (pathname.includes('/industry/auth') || activeUser?.accountType === 'industry') {
-      return [
-        { label: '🏭 B2B ਪ੍ਰੋਜੈਕਟ (Projects)', command: 'Find open industrial projects' },
-        { label: '🤝 ਦਸਤਕਾਰ ਲੱਭੋ (Artisans)', command: 'Find skilled artisans' },
-        { label: '💬 ਸਹਾਇਤਾ (Support)', command: 'Open support desk' },
-      ]
-    }
-    return [
-      { label: '🎙️ ਦਸਤਕਾਰ ਰਜਿਸਟ੍ਰੇਸ਼ਨ (Voice Signup)', command: 'I want to register as an artisan' },
-      { label: '🛍️ ਮਾਰਕੀਟਪਲੇਸ (Marketplace)', command: 'Show me products' },
-      { label: '📦 ਆਰਡਰ ਟ੍ਰੈਕ ਕਰੋ (Track Order)', command: 'Track my order' },
-      { label: '❓ ਸਕਿੱਲਬ੍ਰਿਜ ਕੀ ਹੈ? (About)', command: 'What is SkillBridge?' },
-      { label: '💬 ਸਹਾਇਤਾ ਕੇਂਦਰ (Support)', command: 'Contact support' },
-    ]
-  }, [activeUser, pathname])
+    return MASCOT_UI.suggestions.guest[language] || []
+  }, [activeUser, language])
 
-  // Context-aware Header Badge
+  // Header Titles
   const headerInfo = useMemo(() => {
     if (activeUser?.accountType === 'artisan') {
       return {
-        title: 'Artisan AI Studio',
-        subtitle: 'Voice Shop · Orders · Products · Earnings',
+        title:
+          language === 'pa'
+            ? 'ਦਸਤਕਾਰ AI ਸਟੂਡੀਓ'
+            : language === 'hi'
+            ? 'कारीगर AI स्टूडियो'
+            : 'Artisan AI Studio',
+        subtitle:
+          language === 'pa'
+            ? 'ਦੁਕਾਨ · ਉਤਪਾਦ · ਆਰਡਰ · ਕਮਾਈ'
+            : language === 'hi'
+            ? 'दुकान · उत्पाद · ऑर्डर · कमाई'
+            : 'Shop · Products · Orders · Earnings',
       }
     }
     if (activeUser?.accountType === 'customer') {
       return {
-        title: 'Craft Assistant',
-        subtitle: 'Shopping · Live Order Tracking · Support',
-      }
-    }
-    if (activeUser?.accountType === 'industry') {
-      return {
-        title: 'Industry Partner AI',
-        subtitle: 'B2B Projects · Bulk Orders · Artisans',
+        title:
+          language === 'pa'
+            ? 'ਦਸਤਕਾਰੀ ਸਹਾਇਕ'
+            : language === 'hi'
+            ? 'हस्तशिल्प सहायक'
+            : 'Craft Assistant',
+        subtitle:
+          language === 'pa'
+            ? 'ਖਰੀਦਦਾਰੀ · ਲਾਈਵ ਆਰਡਰ ਟ੍ਰੈਕਿੰਗ · ਸਹਾਇਤਾ'
+            : language === 'hi'
+            ? 'खरीदारी · लाइव ऑर्डर ट्रैकिंग · सहायता'
+            : 'Shopping · Order Tracking · Support',
       }
     }
     return {
-      title: 'SkillBridge AI Mascot',
-      subtitle: 'Multilingual Voice & Smart Platform Assistant',
+      title:
+        language === 'pa'
+          ? 'ਸਕਿੱਲਬ੍ਰਿਜ AI ਮੈਸਕੌਟ'
+          : language === 'hi'
+          ? 'स्किलब्रिज AI मैस्कॉट'
+          : 'SkillBridge AI Mascot',
+      subtitle:
+        language === 'pa'
+          ? 'ਬਹੁਭਾਸ਼ਾਈ ਵਾਇਸ ਤੇ ਸਮਾਰਟ ਸਹਾਇਕ'
+          : language === 'hi'
+          ? 'बहुभाषी वॉइस व स्मार्ट सहायक'
+          : 'Multilingual Voice & Smart Platform Assistant',
     }
-  }, [activeUser])
+  }, [activeUser, language])
 
   if (!isOpen) return null
 
@@ -562,7 +1195,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
       role="dialog"
     >
       <div className="relative flex h-full w-full max-w-lg flex-col bg-surface shadow-2xl border-l border-border transition-transform duration-300 sm:max-w-md md:max-w-lg">
-        {/* 1. Header */}
+        {/* 1. Top Header */}
         <div className="flex items-center justify-between border-b border-border/80 bg-surface-muted/60 px-4 py-3 sm:px-5">
           <div className="flex items-center gap-2.5">
             <span className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary text-white shadow-xs">
@@ -582,7 +1215,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* Language Switcher */}
+            {/* Multilingual Selector */}
             <div className="flex items-center gap-0.5 rounded-full bg-surface border border-border p-0.5 shadow-2xs">
               {LANGUAGES.map((l) => (
                 <button
@@ -592,10 +1225,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
                       : 'text-text-secondary hover:text-text-main'
                   }`}
                   key={l.code}
-                  onClick={() => {
-                    stopAudio()
-                    setLanguage(l.code)
-                  }}
+                  onClick={() => handleLanguageChange(l.code)}
                   type="button"
                 >
                   {l.name}
@@ -625,7 +1255,11 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
               title={isMuted ? 'Unmute voice' : 'Mute voice'}
               type="button"
             >
-              {isMuted ? <VolumeX className="h-4 w-4 text-rose-500" /> : <Volume2 className="h-4 w-4 text-primary" />}
+              {isMuted ? (
+                <VolumeX className="h-4 w-4 text-rose-500" />
+              ) : (
+                <Volume2 className="h-4 w-4 text-primary" />
+              )}
             </button>
 
             {/* Close Button */}
@@ -644,28 +1278,28 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
         </div>
 
         {/* 2. Interactive Mascot Stage */}
-        <div className="relative flex flex-col items-center justify-center border-b border-border/60 bg-gradient-to-b from-surface-muted/40 via-surface to-background/50 py-3 px-4">
+        <div className="relative flex flex-col items-center justify-center border-b border-border/60 bg-gradient-to-b from-surface-muted/40 via-surface to-background/50 py-2.5 px-4">
           {/* Status Capsule */}
           <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-secondary/30 bg-secondary/10 px-3 py-0.5 text-[10px] font-bold text-secondary shadow-2xs">
             {robotState === 'listening' ? (
               <>
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                <span>🎙️ Listening to you... (ਸੁਣ ਰਿਹਾ ਹਾਂ)</span>
+                <span>{MASCOT_UI.status.listening[language]}</span>
               </>
             ) : robotState === 'speaking' ? (
               <>
                 <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                <span>🔊 Mascot speaking (ਬੋਲ ਰਿਹਾ ਹਾਂ)</span>
+                <span>{MASCOT_UI.status.speaking[language]}</span>
               </>
             ) : robotState === 'processing' ? (
               <>
                 <span className="h-2 w-2 rounded-full bg-indigo-500 animate-spin" />
-                <span>⚡ Thinking & Finding answers...</span>
+                <span>{MASCOT_UI.status.processing[language]}</span>
               </>
             ) : (
               <>
                 <Sparkles className="h-3 w-3 text-secondary animate-spin-slow" />
-                <span>✨ Ready to Help • Tap mic to speak</span>
+                <span>{MASCOT_UI.status.ready[language]}</span>
               </>
             )}
           </div>
@@ -693,8 +1327,97 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
           />
         </div>
 
-        {/* 3. Conversation Message Stream */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5 sm:px-5 bg-background/30">
+        {/* 3. Three Main Mascot Conversation Options */}
+        <div className="border-b border-border/70 bg-surface px-3 py-2 sm:px-4">
+          <div className="grid grid-cols-3 gap-1.5">
+            {/* Option 1: Create My Shop */}
+            <button
+              className={`flex flex-col items-center justify-center rounded-xl border p-2 text-center transition-all cursor-pointer ${
+                mode === 'GUIDED_SHOP'
+                  ? 'border-primary bg-primary/10 text-primary shadow-xs ring-2 ring-primary/20'
+                  : 'border-border/80 bg-surface-muted/60 text-text-main hover:bg-surface hover:border-primary/40'
+              }`}
+              onClick={handleStartShopCreation}
+              type="button"
+            >
+              <Store className="h-4 w-4 mb-0.5 text-primary" />
+              <span className="text-[11px] font-bold leading-tight">
+                {MASCOT_UI.options.createShop[language]}
+              </span>
+            </button>
+
+            {/* Option 2: Add a Product */}
+            <button
+              className={`flex flex-col items-center justify-center rounded-xl border p-2 text-center transition-all cursor-pointer ${
+                mode === 'GUIDED_PRODUCT'
+                  ? 'border-secondary bg-secondary/10 text-secondary shadow-xs ring-2 ring-secondary/20'
+                  : 'border-border/80 bg-surface-muted/60 text-text-main hover:bg-surface hover:border-secondary/40'
+              }`}
+              onClick={handleStartProductCreation}
+              type="button"
+            >
+              <PackagePlus className="h-4 w-4 mb-0.5 text-secondary" />
+              <span className="text-[11px] font-bold leading-tight">
+                {MASCOT_UI.options.addProduct[language]}
+              </span>
+            </button>
+
+            {/* Option 3: Ask Me Anything */}
+            <button
+              className={`flex flex-col items-center justify-center rounded-xl border p-2 text-center transition-all cursor-pointer ${
+                mode === 'AMA'
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-xs ring-2 ring-indigo-200'
+                  : 'border-border/80 bg-surface-muted/60 text-text-main hover:bg-surface hover:border-indigo-400'
+              }`}
+              onClick={handleSwitchToAMA}
+              type="button"
+            >
+              <HelpCircle className="h-4 w-4 mb-0.5 text-indigo-600" />
+              <span className="text-[11px] font-bold leading-tight">
+                {MASCOT_UI.options.askAnything[language]}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* 4. Guided Workflow Header & Progress Indicator */}
+        {mode !== 'AMA' && !isShowingPreview && activeQuestion && (
+          <div className="flex items-center justify-between border-b border-border/70 bg-gradient-to-r from-primary/5 via-secondary/5 to-accent/5 px-4 py-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center rounded-full bg-primary text-white text-[10px] font-bold h-5 px-2">
+                {formatProgress(guidedStep + 1, currentQuestions.length, language)}
+              </span>
+              <span className="font-semibold text-text-main">
+                {mode === 'GUIDED_SHOP'
+                  ? MASCOT_UI.options.createShop[language]
+                  : MASCOT_UI.options.addProduct[language]}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {guidedStep > 0 && (
+                <button
+                  className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-white px-2 py-0.5 text-[10px] font-bold text-text-secondary hover:text-primary transition cursor-pointer"
+                  onClick={handleGoBack}
+                  type="button"
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                  <span>{MASCOT_UI.actions.back[language]}</span>
+                </button>
+              )}
+              <button
+                className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100 transition cursor-pointer"
+                onClick={handleCancelWorkflow}
+                type="button"
+              >
+                {MASCOT_UI.actions.cancel[language]}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 5. Main Chat & Interaction Stream */}
+        <div className="flex-1 overflow-y-auto px-4 py-3.5 space-y-3 sm:px-5 bg-background/30">
           {messages.map((msg) => (
             <div
               className={`flex flex-col ${
@@ -712,7 +1435,6 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
                     : 'bg-surface text-text-main border border-border/80 rounded-bl-xs'
                 }`}
               >
-                {/* Assistant Identity tag */}
                 {msg.sender === 'assistant' && (
                   <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b border-border/40 text-[10px] text-text-muted">
                     <span className="flex items-center gap-1 font-bold text-primary">
@@ -745,162 +1467,265 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
                 )}
 
                 <p className="whitespace-pre-line text-xs font-normal">{msg.text}</p>
+
+                {msg.imagePreview && (
+                  <div className="mt-2 overflow-hidden rounded-xl border border-white/30">
+                    <img
+                      alt="Uploaded preview"
+                      className="h-28 w-28 object-cover"
+                      src={msg.imagePreview}
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Rich Visual Action Cards (Products, Orders, Support Desk) */}
-              {msg.actionData && (
-                <div className="mt-2 w-full max-w-[95%] space-y-2.5">
-                  {/* Products Card List */}
-                  {msg.actionData.products && msg.actionData.products.length > 0 && (
-                    <div className="rounded-2xl border border-secondary/30 bg-secondary/5 p-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs font-bold text-secondary">
-                        <span className="flex items-center gap-1.5">
-                          <Package className="h-3.5 w-3.5" />
-                          <span>Handmade Crafts ({msg.actionData.products.length})</span>
-                        </span>
-                        <span className="text-[10px] bg-secondary/10 px-2 py-0.5 rounded-full">
-                          Authentic Artisan Crafts
-                        </span>
-                      </div>
-                      <div className="grid gap-2 max-h-56 overflow-y-auto pr-1">
-                        {msg.actionData.products.map((p, idx) => (
-                          <div
-                            className="flex items-center justify-between gap-2.5 rounded-xl bg-white p-2.5 text-xs border border-border shadow-2xs hover:border-secondary transition"
-                            key={p.id || p._id || idx}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-surface-muted border border-border/60">
-                                {p.image || p.images?.[0] ? (
-                                  <img
-                                    alt={p.title}
-                                    className="h-full w-full object-cover"
-                                    src={p.image || p.images?.[0]}
-                                  />
-                                ) : (
-                                  <div className="flex h-full w-full items-center justify-center text-text-muted">
-                                    <ShoppingBag className="h-4 w-4 text-primary" />
-                                  </div>
-                                )}
-                              </div>
-                              <div className="min-w-0">
-                                <p className="font-bold text-text-main truncate" title={p.title}>
-                                  {p.title}
-                                </p>
-                                <p className="text-[10px] text-text-muted truncate">
-                                  {p.category || 'Handicrafts'}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <span className="font-bold text-primary text-xs">₹{p.price}</span>
-                              {p.stock !== undefined && (
-                                <span className="block text-[10px] text-text-muted">
-                                  Stock: {p.stock}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+              {/* Action Buttons inside message cards */}
+              {msg.actionData?.requireShop && (
+                <div className="mt-2 w-full max-w-[90%] rounded-2xl border border-amber-300 bg-amber-50 p-3 shadow-xs">
+                  <p className="text-xs font-bold text-amber-900 mb-2 flex items-center gap-1.5">
+                    <Store className="h-4 w-4 text-amber-700" />
+                    <span>{MASCOT_UI.feedback.requireShopFirst[language]}</span>
+                  </p>
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary-hover px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:scale-102 transition cursor-pointer"
+                    onClick={handleStartShopCreation}
+                    type="button"
+                  >
+                    <span>{MASCOT_UI.options.createShop[language]}</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
 
-                  {/* Orders Card List */}
-                  {msg.actionData.orders && msg.actionData.orders.length > 0 && (
-                    <div className="rounded-2xl border border-amber-300 bg-amber-50/60 p-3 space-y-2">
-                      <p className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
-                        <ShoppingBag className="h-3.5 w-3.5 text-amber-700" />
-                        <span>Order Status Tracking ({msg.actionData.orders.length})</span>
-                      </p>
-                      <div className="grid gap-2 max-h-56 overflow-y-auto pr-1">
-                        {msg.actionData.orders.map((o, idx) => (
-                          <div
-                            className="flex items-center justify-between rounded-xl bg-white p-2.5 text-xs border border-amber-200 shadow-2xs"
-                            key={o.id || o._id || idx}
-                          >
-                            <div>
-                              <p className="font-mono font-bold text-text-main text-xs">
-                                #{o.orderNumber || (o._id ? o._id.slice(-6) : 'ORDER')}
-                              </p>
-                              <p className="text-[10px] text-text-muted truncate max-w-[150px]">
-                                {o.items?.[0]?.title || 'Handcrafted items'}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <span className="font-bold text-primary">₹{o.subtotal || o.totalAmount || 0}</span>
-                              <span
-                                className={`block text-[10px] font-bold ${
-                                  o.status === 'Completed' || o.status === 'Delivered'
-                                    ? 'text-emerald-600'
-                                    : o.status === 'Disputed'
-                                    ? 'text-rose-600'
-                                    : 'text-amber-600'
-                                }`}
-                              >
-                                {o.status || 'In Progress'}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Earnings Card */}
-                  {msg.actionData.totalEarned !== undefined && (
-                    <div className="grid grid-cols-2 gap-2 rounded-2xl border border-emerald-300 bg-emerald-50/80 p-3 text-xs">
-                      <div>
-                        <span className="text-[10px] font-semibold text-emerald-800">
-                          Total Verified Earnings
-                        </span>
-                        <p className="text-base font-bold text-emerald-700">
-                          ₹{msg.actionData.totalEarned.toLocaleString('en-IN')}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-[10px] font-semibold text-amber-800">
-                          Pending Payouts
-                        </span>
-                        <p className="text-base font-bold text-amber-700">
-                          ₹{(msg.actionData.pendingPayout || 0).toLocaleString('en-IN')}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 1-Click Navigation / Action Button */}
-                  {msg.actionData.navigation && (
-                    <div className="rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/10 to-secondary/10 p-3 flex items-center justify-between gap-3 shadow-2xs">
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-text-main flex items-center gap-1.5 truncate">
-                          <Sparkles className="h-3.5 w-3.5 text-secondary shrink-0" />
-                          <span>{msg.actionData.navigation.label}</span>
-                        </p>
-                        <p className="text-[11px] text-text-muted mt-0.5">
-                          Click to open directly
-                        </p>
-                      </div>
-                      <button
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary-hover px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:shadow hover:scale-102 active:scale-95 transition cursor-pointer shrink-0"
-                        onClick={() => handleNavigationAction(msg.actionData.navigation)}
-                        type="button"
-                      >
-                        <span>Open</span>
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
+              {msg.actionData?.navigation && (
+                <div className="mt-2 w-full max-w-[90%] rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/10 to-secondary/10 p-3 flex items-center justify-between gap-3 shadow-2xs">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-text-main flex items-center gap-1.5 truncate">
+                      <Sparkles className="h-3.5 w-3.5 text-secondary shrink-0" />
+                      <span>{msg.actionData.navigation.label}</span>
+                    </p>
+                  </div>
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary-hover px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:scale-102 transition cursor-pointer shrink-0"
+                    onClick={() => handleNavigationAction(msg.actionData.navigation)}
+                    type="button"
+                  >
+                    <span>Open</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               )}
             </div>
           ))}
 
-          {/* Pending Action Confirmation Banner */}
+          {/* Real-time Voice Transcription Bubble */}
+          {liveTranscript && (
+            <div className="rounded-2xl border border-secondary/40 bg-secondary/10 p-3 text-center text-xs font-semibold text-text-main animate-pulse">
+              <span className="text-[10px] text-secondary block font-bold uppercase tracking-wider mb-0.5">
+                {language === 'pa'
+                  ? 'ਸੁਣ ਰਿਹਾ ਹਾਂ...'
+                  : language === 'hi'
+                  ? 'सुन रहा हूँ...'
+                  : 'Hearing voice input:'}
+              </span>
+              &quot;{liveTranscript}&quot;
+            </div>
+          )}
+
+          {/* Validation Error Message */}
+          {guidedError && (
+            <div className="rounded-2xl border border-red-300 bg-red-50 p-3 text-xs font-semibold text-red-800 flex items-center gap-2 animate-shake">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+              <span>{guidedError}</span>
+            </div>
+          )}
+
+          {/* Inline Image Upload Area when Question expects image */}
+          {mode !== 'AMA' && !isShowingPreview && activeQuestion?.isImageUpload && (
+            <div className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 text-center space-y-3">
+              {guidedImagePreview ? (
+                <div className="flex flex-col items-center gap-2">
+                  <img
+                    alt="Preview"
+                    className="h-28 w-28 object-cover rounded-xl border border-primary/40 shadow-xs"
+                    src={guidedImagePreview}
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-primary hover:underline cursor-pointer">
+                      {MASCOT_UI.actions.changeImage[language]}
+                      <input
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageFileSelect}
+                        type="file"
+                      />
+                    </label>
+                    <button
+                      className="rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-primary-hover cursor-pointer"
+                      onClick={() => proceedToNextQuestion(guidedStep + 1, guidedAnswers)}
+                      type="button"
+                    >
+                      {MASCOT_UI.actions.next[language]}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <UploadCloud className="h-8 w-8 text-primary animate-bounce-subtle" />
+                  <p className="text-xs font-semibold text-text-main">
+                    {activeQuestion.prompts[language].hint}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-primary-hover cursor-pointer">
+                      <Camera className="h-4 w-4" />
+                      <span>{MASCOT_UI.actions.uploadImage[language]}</span>
+                      <input
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageFileSelect}
+                        type="file"
+                      />
+                    </label>
+                    {!activeQuestion.required && (
+                      <button
+                        className="rounded-xl border border-border bg-white px-3 py-2 text-xs font-bold text-text-secondary hover:bg-surface-muted transition cursor-pointer"
+                        onClick={handleSkipQuestion}
+                        type="button"
+                      >
+                        {MASCOT_UI.actions.skip[language]}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 6. Guided Preview & Confirmation Card */}
+          {isShowingPreview && (
+            <div className="rounded-2xl border-2 border-primary/40 bg-surface p-4 shadow-md space-y-3.5 animate-fadeIn">
+              <div className="flex items-center justify-between border-b border-border/80 pb-2">
+                <h3 className="font-serif text-sm font-bold text-primary flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <span>
+                    {mode === 'GUIDED_SHOP'
+                      ? MASCOT_UI.preview.shopTitle[language]
+                      : MASCOT_UI.preview.productTitle[language]}
+                  </span>
+                </h3>
+              </div>
+
+              {/* Preview Rows with Edit buttons */}
+              <div className="space-y-2 text-xs">
+                {currentQuestions.map((q, idx) => {
+                  const val = guidedAnswers[q.key]
+                  let label = q.prompts[language].display
+
+                  if (mode === 'GUIDED_SHOP') {
+                    if (q.key === 'name') label = MASCOT_UI.preview.name[language]
+                    if (q.key === 'category') label = MASCOT_UI.preview.category[language]
+                    if (q.key === 'description') label = MASCOT_UI.preview.description[language]
+                    if (q.key === 'location') label = MASCOT_UI.preview.location[language]
+                    if (q.key === 'speciality') label = MASCOT_UI.preview.speciality[language]
+                    if (q.key === 'logo') label = MASCOT_UI.preview.logo[language]
+                  } else {
+                    if (q.key === 'title') label = MASCOT_UI.preview.productName[language]
+                    if (q.key === 'category') label = MASCOT_UI.preview.category[language]
+                    if (q.key === 'description') label = MASCOT_UI.preview.description[language]
+                    if (q.key === 'price') label = MASCOT_UI.preview.price[language]
+                    if (q.key === 'stock') label = MASCOT_UI.preview.stock[language]
+                    if (q.key === 'materials') label = MASCOT_UI.preview.materials[language]
+                    if (q.key === 'craftTime') label = MASCOT_UI.preview.craftTime[language]
+                    if (q.key === 'image') label = MASCOT_UI.preview.image[language]
+                  }
+
+                  return (
+                    <div
+                      className="flex items-start justify-between gap-2 rounded-xl bg-surface-muted/60 p-2.5 border border-border/60"
+                      key={q.key}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block">
+                          {label}
+                        </span>
+                        {q.isImageUpload && guidedImagePreview ? (
+                          <img
+                            alt="Uploaded"
+                            className="mt-1 h-14 w-14 object-cover rounded-lg border border-border"
+                            src={guidedImagePreview}
+                          />
+                        ) : (
+                          <p className="font-semibold text-text-main break-words mt-0.5">
+                            {q.key === 'price' && val ? `₹${val}` : val || MASCOT_UI.preview.notProvided[language]}
+                          </p>
+                        )}
+                      </div>
+
+                      <button
+                        className="rounded-lg border border-border bg-white px-2 py-1 text-[10px] font-bold text-primary hover:bg-primary hover:text-white transition cursor-pointer shrink-0"
+                        onClick={() => handleEditField(idx)}
+                        type="button"
+                      >
+                        {MASCOT_UI.actions.edit[language]}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Confirmation Actions */}
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 py-2.5 text-xs font-bold text-white shadow-xs hover:brightness-105 transition cursor-pointer disabled:opacity-50"
+                  disabled={isSaving}
+                  onClick={
+                    mode === 'GUIDED_SHOP'
+                      ? handleConfirmCreateShop
+                      : handleConfirmPublishProduct
+                  }
+                  type="button"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>{MASCOT_UI.actions.saving[language]}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      <span>
+                        {mode === 'GUIDED_SHOP'
+                          ? MASCOT_UI.actions.confirmCreateShop[language]
+                          : MASCOT_UI.actions.confirmPublishProduct[language]}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  className="w-full rounded-xl border border-border bg-white py-2 text-xs font-bold text-text-secondary hover:bg-surface-muted transition cursor-pointer"
+                  disabled={isSaving}
+                  onClick={handleCancelWorkflow}
+                  type="button"
+                >
+                  {MASCOT_UI.actions.cancel[language]}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Pending Affirmation Banner */}
           {pendingAction && (
             <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-4 shadow-sm animate-fadeIn">
               <p className="text-xs font-bold text-primary flex items-center gap-1.5 mb-2">
                 <AlertCircle className="h-4 w-4" />
-                <span>ਕਿਰਪਾ ਕਰਕੇ ਪੁਸ਼ਟੀ ਕਰੋ / Please Confirm:</span>
+                <span>
+                  {language === 'pa'
+                    ? 'ਕਿਰਪਾ ਕਰਕੇ ਪੁਸ਼ਟੀ ਕਰੋ:'
+                    : language === 'hi'
+                    ? 'कृपया पुष्टि करें:'
+                    : 'Please confirm:'}
+                </span>
               </p>
               <div className="flex items-center gap-2">
                 <button
@@ -909,7 +1734,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
                   type="button"
                 >
                   <Check className="h-4 w-4" />
-                  <span>ਹਾਂ, ਪੁਸ਼ਟੀ ਕਰੋ (Yes)</span>
+                  <span>{MASCOT_UI.actions.yes[language]}</span>
                 </button>
                 <button
                   className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-border bg-white px-3 py-2 text-xs font-bold text-text-secondary hover:bg-surface-muted transition cursor-pointer"
@@ -917,19 +1742,9 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
                   type="button"
                 >
                   <X className="h-4 w-4" />
-                  <span>ਰੱਦ ਕਰੋ (Cancel)</span>
+                  <span>{MASCOT_UI.actions.no[language]}</span>
                 </button>
               </div>
-            </div>
-          )}
-
-          {/* Real-time Voice Transcription bubble */}
-          {liveTranscript && (
-            <div className="rounded-2xl border border-secondary/40 bg-secondary/10 p-3 text-center text-xs font-semibold text-text-main animate-pulse">
-              <span className="text-[10px] text-secondary block font-bold uppercase tracking-wider mb-0.5">
-                {language === 'pa' ? 'ਸੁਣ ਰਿਹਾ ਹਾਂ...' : 'Hearing voice input:'}
-              </span>
-              &quot;{liveTranscript}&quot;
             </div>
           )}
 
@@ -943,32 +1758,34 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
           <div ref={chatBottomRef} />
         </div>
 
-        {/* 4. Footer Interactive Voice & Text Controls */}
+        {/* 7. Bottom Controls & Voice/Text Inputs */}
         <div className="border-t border-border/80 bg-surface p-3 sm:p-4 space-y-2.5">
-          {/* Quick Voice Suggestion Chips */}
-          <div className="flex flex-wrap gap-1.5 justify-center pb-0.5 max-h-20 overflow-y-auto">
-            {suggestionChips.map((chip) => (
-              <button
-                className="inline-flex items-center gap-1 rounded-full border border-border/80 bg-surface-muted/90 px-2.5 py-1 text-[11px] font-semibold text-text-secondary hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition cursor-pointer shadow-2xs"
-                key={chip.label}
-                onClick={() => handleSendMessage(chip.command)}
-                type="button"
-              >
-                <span>{chip.label}</span>
-              </button>
-            ))}
-          </div>
+          {/* Quick Suggestion Chips (when in AMA mode) */}
+          {mode === 'AMA' && suggestionChips.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 justify-center pb-0.5 max-h-20 overflow-y-auto">
+              {suggestionChips.map((chip) => (
+                <button
+                  className="inline-flex items-center gap-1 rounded-full border border-border/80 bg-surface-muted/90 px-2.5 py-1 text-[11px] font-semibold text-text-secondary hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition cursor-pointer shadow-2xs"
+                  key={chip.label}
+                  onClick={() => handleSendMessage(chip.command)}
+                  type="button"
+                >
+                  <span>{chip.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Big Interactive Mic Button Controls */}
           <div className="flex items-center justify-center gap-4 pt-1">
             {/* Replay last audio button */}
             <button
-              aria-label="Replay last speech"
+              aria-label="Replay speech"
               className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-muted text-text-secondary hover:text-primary hover:border-primary transition cursor-pointer"
               onClick={() => {
                 if (lastSpokenText) speakResponse(lastSpokenText)
               }}
-              title="Replay assistant voice"
+              title="Replay speech"
               type="button"
             >
               <RotateCcw className="h-4 w-4" />
@@ -1023,10 +1840,14 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
             {robotState === 'listening'
               ? language === 'pa'
                 ? 'ਬੋਲੋ ਜੀ... ਮੈਂ ਸੁਣ ਰਿਹਾ ਹਾਂ'
-                : 'Listening... speak your request now'
+                : language === 'hi'
+                ? 'बोलिए जी... मैं सुन रहा हूँ'
+                : 'Listening... speak your answer now'
               : language === 'pa'
               ? 'ਬੋਲਣ ਲਈ ਮਾਈਕ ਦਬਾਓ ਜਾਂ ਹੇਠਾਂ ਲਿਖੋ'
-              : 'Tap mic to speak or type in any language below'}
+              : language === 'hi'
+              ? 'बोलने के लिए माइक दबाएं या नीचे लिखें'
+              : 'Tap mic to speak or type answer below'}
           </p>
 
           {/* Text Input Fallback Bar */}
@@ -1041,11 +1862,18 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
               className="flex-1 rounded-xl border border-border bg-surface-muted/60 px-3.5 py-2 text-xs text-text-main outline-none focus:border-primary focus:bg-white focus:ring-1 focus:ring-primary transition placeholder:text-text-muted"
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder={
-                language === 'pa'
-                  ? "ਕੁਝ ਵੀ ਪੁੱਛੋ (ਜਿਵੇਂ 'ਉਤਪਾਦ ਦਿਖਾਓ', 'ਆਰਡਰ ਟ੍ਰੈਕ ਕਰੋ')..."
+                mode === 'GUIDED_SHOP' || mode === 'GUIDED_PRODUCT'
+                  ? activeQuestion?.prompts[language]?.hint ||
+                    (language === 'pa'
+                      ? 'ਆਪਣਾ ਜਵਾਬ ਲਿਖੋ...'
+                      : language === 'hi'
+                      ? 'अपना उत्तर लिखें...'
+                      : 'Type your answer...')
+                  : language === 'pa'
+                  ? "ਕੁਝ ਵੀ ਪੁੱਛੋ (ਜਿਵੇਂ 'ਦੁਕਾਨ ਬਣਾਓ', 'ਉਤਪਾਦ ਜੋੜੋ')..."
                   : language === 'hi'
-                  ? "कुछ भी पूछें (जैसे 'उत्पाद दिखाओ', 'ऑर्डर ट्रैक करो')..."
-                  : "Ask anything (e.g., 'Track order', 'Show products')..."
+                  ? "कुछ भी पूछें (जैसे 'दुकान बनाएँ', 'उत्पाद जोड़ें')..."
+                  : "Ask anything (e.g. 'Create shop', 'Add product')..."
               }
               value={inputMessage}
             />

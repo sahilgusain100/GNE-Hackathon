@@ -51,11 +51,15 @@ export const handleVoiceAssistantMessage = async (req, res) => {
 
     // Step 1: Check if there is an active pendingAction awaiting confirmation or cancellation
     if (pendingAction && pendingAction.type) {
-      const intentCheck = await parseArtisanIntent(trimmedMsg, {
-        name: activeUser?.name || "Guest",
-        id: activeUser?._id ? activeUser._id.toString() : "",
-        shopName: shop?.name || "",
-      });
+      const intentCheck = await parseArtisanIntent(
+        trimmedMsg,
+        {
+          name: activeUser?.name || "Guest",
+          id: activeUser?._id ? activeUser._id.toString() : "",
+          shopName: shop?.name || "",
+        },
+        language
+      );
 
       // Handle Cancel / Negation
       if (intentCheck.intent === "NEGATION") {
@@ -97,17 +101,164 @@ export const handleVoiceAssistantMessage = async (req, res) => {
     }
 
     // Step 2: Parse Intent & Entities from message
-    const parsed = await parseArtisanIntent(trimmedMsg, {
-      name: activeUser?.name || "Guest",
-      id: activeUser?._id ? activeUser._id.toString() : "",
-      shopName: shop?.name || "",
-    });
+    const parsed = await parseArtisanIntent(
+      trimmedMsg,
+      {
+        name: activeUser?.name || "Guest",
+        id: activeUser?._id ? activeUser._id.toString() : "",
+        shopName: shop?.name || "",
+      },
+      language
+    );
 
     const lang = parsed.detectedLanguage || language || "pa";
     const entities = parsed.entities || {};
 
     // Step 3: Route to specific Intent Handlers
     switch (parsed.intent) {
+      // --- GUIDED WORKFLOW INTENTS ---
+      case "START_GUIDED_SHOP": {
+        if (!artisanUser) {
+          const reqLogin =
+            lang === "pa"
+              ? "ਦੁਕਾਨ ਬਣਾਉਣ ਲਈ ਕਿਰਪਾ ਕਰਕੇ ਪਹਿਲਾਂ ਆਪਣੇ ਦਸਤਕਾਰ ਖਾਤੇ ਵਿੱਚ ਲੌਗਇਨ ਕਰੋ ਜਾਂ ਰਜਿਸਟਰ ਕਰੋ।"
+              : lang === "hi"
+              ? "दुकान बनाने के लिए कृपया पहले अपने कारीगर खाते में लॉगिन करें या रजिस्टर करें।"
+              : "To create a shop, please log in or register as an artisan first.";
+
+          return res.status(200).json({
+            success: true,
+            reply: reqLogin,
+            speechText: cleanForSpeech(reqLogin),
+            actionData: {
+              navigation: {
+                label: lang === "pa" ? "ਦਸਤਕਾਰ ਲੌਗਇਨ / ਰਜਿਸਟਰ" : lang === "hi" ? "कारीगर लॉगिन / रजिस्टर" : "Artisan Login / Register",
+                path: "/artisan/auth?mode=signup&method=voice",
+                triggerVoiceSignup: true,
+              },
+            },
+          });
+        }
+
+        if (shop) {
+          const existingShopReply =
+            lang === "pa"
+              ? `ਤੁਹਾਡੀ ਦੁਕਾਨ '${shop.name}' ਪਹਿਲਾਂ ਹੀ ਬਣੀ ਹੋਈ ਹੈ। ਤੁਸੀਂ ਆਪਣੇ ਵੇਰਵੇ ਅਪਡੇਟ ਕਰ ਸਕਦੇ ਹੋ ਜਾਂ ਨਵਾਂ ਉਤਪਾਦ ਜੋੜ ਸਕਦੇ ਹੋ।`
+              : lang === "hi"
+              ? `आपकी दुकान '${shop.name}' पहले से बनी हुई है। आप विवरण अपडेट कर सकते हैं या नया उत्पाद जोड़ सकते हैं।`
+              : `Your shop '${shop.name}' already exists. You can update your shop details or add a product.`;
+
+          return res.status(200).json({
+            success: true,
+            reply: existingShopReply,
+            speechText: cleanForSpeech(existingShopReply),
+            actionData: {
+              shop: shop.toSafeObject(),
+              navigation: {
+                label: lang === "pa" ? "ਮੇਰੀ ਦੁਕਾਨ ਦੇਖੋ" : lang === "hi" ? "मेरी दुकान देखें" : "View My Shop",
+                path: "/artisan/profile?tab=shop",
+              },
+              guidedMode: "shop",
+            },
+          });
+        }
+
+        const startShopReply =
+          lang === "pa"
+            ? "ਚਲੋ ਤੁਹਾਡੀ ਦੁਕਾਨ ਬਣਾਉਂਦੇ ਹਾਂ! ਪਹਿਲਾ ਸਵਾਲ: ਤੁਹਾਡੀ ਦੁਕਾਨ ਦਾ ਨਾਂ ਕੀ ਹੈ?"
+            : lang === "hi"
+            ? "चलिए आपकी दुकान बनाते हैं! पहला सवाल: आपकी दुकान का नाम क्या है?"
+            : "Let's create your shop! First question: What is your shop name?";
+
+        return res.status(200).json({
+          success: true,
+          reply: startShopReply,
+          speechText: cleanForSpeech(startShopReply),
+          actionData: {
+            guidedMode: "shop",
+            step: 0,
+          },
+        });
+      }
+
+      case "START_GUIDED_PRODUCT": {
+        if (!artisanUser) {
+          const addLogin =
+            lang === "pa"
+              ? "ਉਤਪਾਦ ਜੋੜਨ ਲਈ ਕਿਰਪਾ ਕਰਕੇ ਪਹਿਲਾਂ ਆਪਣੇ ਦਸਤਕਾਰ ਖਾਤੇ ਵਿੱਚ ਲੌਗਇਨ ਜਾਂ ਰਜਿਸਟਰ ਕਰੋ।"
+              : lang === "hi"
+              ? "उत्पाद जोड़ने के लिए कृपया पहले कारीगर खाते में लॉगिन या रजिस्टर करें।"
+              : "To add products, please log in or register as an artisan first.";
+
+          return res.status(200).json({
+            success: true,
+            reply: addLogin,
+            speechText: cleanForSpeech(addLogin),
+            actionData: {
+              navigation: {
+                label: lang === "pa" ? "ਬੋਲ ਕੇ ਰਜਿਸਟਰ ਕਰੋ" : lang === "hi" ? "बोलकर रजिस्टर करें" : "Voice Register",
+                path: "/artisan/auth?mode=signup&method=voice",
+                triggerVoiceSignup: true,
+              },
+            },
+          });
+        }
+
+        if (!shop) {
+          const noShopReply =
+            lang === "pa"
+              ? "ਤੁਹਾਡੇ ਕੋਲ ਅਜੇ ਕੋਈ ਦੁਕਾਨ ਨਹੀਂ ਹੈ! ਉਤਪਾਦ ਜੋੜਨ ਤੋਂ ਪਹਿਲਾਂ ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੀ ਦੁਕਾਨ ਬਣਾਓ।"
+              : lang === "hi"
+              ? "आपके पास अभी कोई दुकान नहीं है! उत्पाद जोड़ने से पहले कृपया अपनी दुकान बनाएँ।"
+              : "You do not have a shop yet! Please create your shop before adding products.";
+
+          return res.status(200).json({
+            success: true,
+            reply: noShopReply,
+            speechText: cleanForSpeech(noShopReply),
+            actionData: {
+              requireShop: true,
+              suggestedAction: "create_shop",
+            },
+          });
+        }
+
+        const startProdReply =
+          lang === "pa"
+            ? "ਚਲੋ ਨਵਾਂ ਉਤਪਾਦ ਜੋੜਦੇ ਹਾਂ! ਪਹਿਲਾ ਸਵਾਲ: ਤੁਹਾਡੇ ਉਤਪਾਦ ਦਾ ਨਾਂ ਕੀ ਹੈ?"
+            : lang === "hi"
+            ? "चलिए नया उत्पाद जोड़ते हैं! पहला सवाल: आपके उत्पाद का नाम क्या है?"
+            : "Let's add a new product! First question: What is the name of your product?";
+
+        return res.status(200).json({
+          success: true,
+          reply: startProdReply,
+          speechText: cleanForSpeech(startProdReply),
+          actionData: {
+            guidedMode: "product",
+            step: 0,
+          },
+        });
+      }
+
+      case "ASK_ME_ANYTHING": {
+        const amaReply =
+          lang === "pa"
+            ? "ਮੈਂ ਤੁਹਾਡਾ ਸਕਿੱਲਬ੍ਰਿਜ AI ਮੈਸਕੌਟ ਹਾਂ! ਤੁਸੀਂ ਮੈਨੂੰ ਆਪਣੀ ਦੁਕਾਨ, ਉਤਪਾਦਾਂ ਦੀ ਕੀਮਤ, ਗਾਹਕਾਂ ਦੇ ਆਰਡਰਾਂ, ਜਾਂ ਪਲੇਟਫਾਰਮ ਬਾਰੇ ਕੁਝ ਵੀ ਪੁੱਛ ਸਕਦੇ ਹੋ। ਦੱਸੋ ਮੈਂ ਕੀ ਮਦਦ ਕਰਾਂ?"
+            : lang === "hi"
+            ? "मैं आपका स्किलब्रिज AI सहायक हूँ! आप मुझसे अपनी दुकान, उत्पादों की सही कीमत, ऑर्डर ट्रैकिंग, या प्लेटफॉर्म के बारे में कुछ भी पूछ सकते हैं। बताइए मैं क्या मदद करूँ?"
+            : "I am your SkillBridge AI Mascot! You can ask me anything about your shop, pricing recommendations, orders, quality disputes, or platform features. How can I help you?";
+
+        return res.status(200).json({
+          success: true,
+          reply: amaReply,
+          speechText: cleanForSpeech(amaReply),
+          actionData: {
+            guidedMode: "ama",
+          },
+        });
+      }
+
       // --- GENERAL MASCOT INTENTS ---
       case "GREETING": {
         const userName = activeUser?.name ? ` ${activeUser.name} ji` : "";
@@ -353,6 +504,8 @@ export const handleVoiceAssistantMessage = async (req, res) => {
           const listReply =
             lang === "pa"
               ? `ਸਕਿੱਲਬ੍ਰਿਜ 'ਤੇ ਉਪਲਬਧ ਉਤਪਾਦ: ${allProds.slice(0, 3).map((p) => p.title).join(", ")}। ਮਾਰਕੀਟਪਲੇਸ ਵਿੱਚ ਹੋਰ ਦੇਖੋ।`
+              : lang === "hi"
+              ? `स्किलब्रिज पर उपलब्ध प्रमुख हस्तशिल्प: ${allProds.slice(0, 3).map((p) => p.title).join(", ")}। मार्केटप्लेस में और देखें।`
               : `Here are featured crafts on SkillBridge: ${allProds.slice(0, 3).map((p) => p.title).join(", ")}. Explore marketplace for more.`;
 
           return res.status(200).json({
@@ -477,7 +630,12 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         }
 
         if (!product) {
-          const noProd = lang === "pa" ? "ਕੋਈ ਉਤਪਾਦ ਨਹੀਂ ਮਿਲਿਆ ਜਿਸਨੂੰ ਅਪਡੇਟ ਕੀਤਾ ਜਾ ਸਕੇ।" : "No product found to update.";
+          const noProd =
+            lang === "pa"
+              ? "ਕੋਈ ਉਤਪਾਦ ਨਹੀਂ ਮਿਲਿਆ ਜਿਸਨੂੰ ਅਪਡੇਟ ਕੀਤਾ ਜਾ ਸਕੇ।"
+              : lang === "hi"
+              ? "अपडेट करने के लिए कोई उत्पाद नहीं मिला।"
+              : "No product found to update.";
           return res.status(200).json({ success: true, reply: noProd, speechText: cleanForSpeech(noProd) });
         }
 
@@ -485,6 +643,8 @@ export const handleVoiceAssistantMessage = async (req, res) => {
           const askUpdate =
             lang === "pa"
               ? `ਤੁਸੀਂ '${product.title}' ਦਾ ਕੀ ਬਦਲਣਾ ਚਾਹੁੰਦੇ ਹੋ? ਕੀਮਤ ਜਾਂ ਸਟਾਕ?`
+              : lang === "hi"
+              ? `आप '${product.title}' का क्या बदलना चाहते हैं? कीमत या स्टॉक?`
               : `What would you like to update for '${product.title}'? Price or stock?`;
 
           return res.status(200).json({ success: true, reply: askUpdate, speechText: cleanForSpeech(askUpdate) });
@@ -493,6 +653,8 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         const confirmUpdate =
           lang === "pa"
             ? `ਕੀ ਤੁਸੀਂ '${product.title}' ਦਾ ${price !== undefined ? `ਰੇਟ ₹${price}` : ""} ${stock !== undefined ? `ਸਟਾਕ ${stock}` : ""} ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ? ਪੁਸ਼ਟੀ ਲਈ 'ਹਾਂ' ਕਹੋ।`
+            : lang === "hi"
+            ? `क्या आप '${product.title}' की ${price !== undefined ? `कीमत ₹${price}` : ""} ${stock !== undefined ? `स्टॉक ${stock}` : ""} करना चाहते हैं? पुष्टि के लिए 'हाँ' बोलें।`
             : `Should I update '${product.title}' to ${price !== undefined ? `Price: ₹${price}` : ""} ${stock !== undefined ? `Stock: ${stock}` : ""}? Say 'yes' to confirm.`;
 
         return res.status(200).json({
@@ -521,7 +683,12 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         }
 
         if (!product) {
-          const msg = lang === "pa" ? "ਮਿਟਾਉਣ ਲਈ ਕੋਈ ਉਤਪਾਦ ਨਹੀਂ ਮਿਲਿਆ।" : "No product found to delete.";
+          const msg =
+            lang === "pa"
+              ? "ਮਿਟਾਉਣ ਲਈ ਕੋਈ ਉਤਪਾਦ ਨਹੀਂ ਮਿਲਿਆ।"
+              : lang === "hi"
+              ? "हटाने के लिए कोई उत्पाद नहीं मिला।"
+              : "No product found to delete.";
           return res.status(200).json({ success: true, reply: msg, speechText: cleanForSpeech(msg) });
         }
 
@@ -688,7 +855,12 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         }
 
         if (!order) {
-          const noOrder = lang === "pa" ? "ਸਵੀਕਾਰ ਕਰਨ ਲਈ ਕੋਈ ਪੈਂਡਿੰਗ ਆਰਡਰ ਨਹੀਂ ਮਿਲਿਆ।" : "No pending order found to accept.";
+          const noOrder =
+            lang === "pa"
+              ? "ਸਵੀਕਾਰ ਕਰਨ ਲਈ ਕੋਈ ਪੈਂਡਿੰਗ ਆਰਡਰ ਨਹੀਂ ਮਿਲਿਆ।"
+              : lang === "hi"
+              ? "स्वीकार करने के लिए कोई पेंडिंग ऑर्डर नहीं मिला।"
+              : "No pending order found to accept.";
           return res.status(200).json({ success: true, reply: noOrder, speechText: cleanForSpeech(noOrder) });
         }
 
@@ -696,6 +868,8 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         const confirmAccept =
           lang === "pa"
             ? `ਕੀ ਤੁਸੀਂ ਆਰਡਰ #${order.orderNumber || order._id.toString().slice(-6)} (${formatted.items[0]?.title}, ₹${formatted.subtotal}) ਸਵੀਕਾਰ ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ? 'ਹਾਂ' ਕਹੋ।`
+            : lang === "hi"
+            ? `क्या आप ऑर्डर #${order.orderNumber || order._id.toString().slice(-6)} (${formatted.items[0]?.title}, ₹${formatted.subtotal}) स्वीकार करना चाहते हैं? 'हाँ' बोलें।`
             : `Do you want to accept order #${order.orderNumber || order._id.toString().slice(-6)} for ${formatted.items[0]?.title} totaling ₹${formatted.subtotal}? Say 'yes' to confirm.`;
 
         return res.status(200).json({
@@ -727,13 +901,20 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         }
 
         if (!order) {
-          const noOrder = lang === "pa" ? "ਪੂਰਾ ਕਰਨ ਲਈ ਕੋਈ ਚੱਲਦਾ ਹੋਇਆ ਆਰਡਰ ਨਹੀਂ ਮਿਲਿਆ।" : "No active order found to mark completed.";
+          const noOrder =
+            lang === "pa"
+              ? "ਪੂਰਾ ਕਰਨ ਲਈ ਕੋਈ ਚੱਲਦਾ ਹੋਇਆ ਆਰਡਰ ਨਹੀਂ ਮਿਲਿਆ।"
+              : lang === "hi"
+              ? "पूरा करने के लिए कोई सक्रिय ऑर्डर नहीं मिला।"
+              : "No active order found to mark completed.";
           return res.status(200).json({ success: true, reply: noOrder, speechText: cleanForSpeech(noOrder) });
         }
 
         const confirmDone =
           lang === "pa"
             ? `ਕੀ ਆਰਡਰ #${order.orderNumber || order._id.toString().slice(-6)} ਪੂਰਾ ਹੋ ਗਿਆ ਹੈ? ਪੁਸ਼ਟੀ ਲਈ 'ਹਾਂ' ਕਹੋ।`
+            : lang === "hi"
+            ? `क्या ऑर्डर #${order.orderNumber || order._id.toString().slice(-6)} पूरा हो चुका है? पुष्टि के लिए 'हाँ' बोलें।`
             : `Mark order #${order.orderNumber || order._id.toString().slice(-6)} as completed? Say 'yes' to confirm.`;
 
         return res.status(200).json({
@@ -885,18 +1066,22 @@ export const handleVoiceAssistantMessage = async (req, res) => {
           const noProj =
             lang === "pa"
               ? "ਇਸ ਸਮੇਂ ਕੋਈ ਨਵਾਂ ਖੁੱਲ੍ਹਾ ਉਦਯੋਗ ਪ੍ਰੋਜੈਕਟ ਉਪਲਬਧ ਨਹੀਂ ਹੈ।"
+              : lang === "hi"
+              ? "इस समय कोई नया खुला उद्योग प्रोजेक्ट उपलब्ध नहीं है।"
               : "Currently no open industry collaboration projects found.";
           return res.status(200).json({ success: true, reply: noProj, speechText: cleanForSpeech(noProj) });
         }
 
         const projectListText = openProjects
           .slice(0, 3)
-          .map((p) => `${p.title} (ਕੰਪਨੀ: ${p.industry?.name || "Industry"}, ਬਜਟ: ₹${p.unitPrice})`)
+          .map((p) => `${p.title} (${lang === "pa" ? "ਕੰਪਨੀ" : lang === "hi" ? "कंपनी" : "Company"}: ${p.industry?.name || "Industry"}, ₹${p.unitPrice})`)
           .join("; ");
 
         const replyProj =
           lang === "pa"
             ? `ਮੈਨੂੰ ${openProjects.length} ਉਦਯੋਗਿਕ ਪ੍ਰੋਜੈਕਟ ਮਿਲੇ ਹਨ: ${projectListText}।`
+            : lang === "hi"
+            ? `मुझे ${openProjects.length} औद्योगिक प्रोजेक्ट मिले हैं: ${projectListText}।`
             : `Found ${openProjects.length} industry opportunities: ${projectListText}.`;
 
         return res.status(200).json({
@@ -912,13 +1097,20 @@ export const handleVoiceAssistantMessage = async (req, res) => {
       case "COLLABORATION_ACCEPT": {
         const openProject = await Project.findOne({ status: "Open" });
         if (!openProject) {
-          const noProj = lang === "pa" ? "ਸਵੀਕਾਰ ਕਰਨ ਲਈ ਕੋਈ ਪ੍ਰੋਜੈਕਟ ਨਹੀਂ ਮਿਲਿਆ।" : "No open project to accept.";
+          const noProj =
+            lang === "pa"
+              ? "ਸਵੀਕਾਰ ਕਰਨ ਲਈ ਕੋਈ ਪ੍ਰੋਜੈਕਟ ਨਹੀਂ ਮਿਲਿਆ।"
+              : lang === "hi"
+              ? "स्वीकार करने के लिए कोई खुला प्रोजेक्ट नहीं मिला।"
+              : "No open project to accept.";
           return res.status(200).json({ success: true, reply: noProj, speechText: cleanForSpeech(noProj) });
         }
 
         const confirmProject =
           lang === "pa"
             ? `ਕੀ ਤੁਸੀਂ '${openProject.title}' ਪ੍ਰੋਜੈਕਟ (₹${openProject.unitPrice} ਪ੍ਰਤੀ ਨਗ) ਸਵੀਕਾਰ ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ? 'ਹਾਂ' ਕਹੋ।`
+            : lang === "hi"
+            ? `क्या आप '${openProject.title}' प्रोजेक्ट (₹${openProject.unitPrice} प्रति पीस) स्वीकार करना चाहते हैं? 'हाँ' बोलें।`
             : `Do you want to accept project '${openProject.title}' at ₹${openProject.unitPrice} per unit? Say 'yes' to confirm.`;
 
         return res.status(200).json({
@@ -937,7 +1129,12 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         const notifs = await Notification.find({ recipient: artisanUser._id }).sort({ createdAt: -1 }).limit(5);
 
         if (notifs.length === 0) {
-          const noNotif = lang === "pa" ? "ਤੁਹਾਡੇ ਕੋਲ ਕੋਈ ਨਵੀਂ ਸੂਚਨਾ ਨਹੀਂ ਹੈ।" : "You have no new notifications.";
+          const noNotif =
+            lang === "pa"
+              ? "ਤੁਹਾਡੇ ਕੋਲ ਕੋਈ ਨਵੀਂ ਸੂਚਨਾ ਨਹੀਂ ਹੈ।"
+              : lang === "hi"
+              ? "आपके पास कोई नई सूचना नहीं है।"
+              : "You have no new notifications.";
           return res.status(200).json({ success: true, reply: noNotif, speechText: cleanForSpeech(noNotif) });
         }
 
@@ -945,6 +1142,8 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         const replyN =
           lang === "pa"
             ? `ਤੁਹਾਡੀਆਂ ਤਾਜ਼ਾ ਸੂਚਨਾਵਾਂ: ${notifSummary}।`
+            : lang === "hi"
+            ? `आपकी हालिया सूचनाएं: ${notifSummary}।`
             : `Your recent notifications: ${notifSummary}.`;
 
         return res.status(200).json({
@@ -1038,19 +1237,31 @@ export const handleVoiceAssistantMessage = async (req, res) => {
       case "NAVIGATE": {
         const dest = entities.destination || "marketplace";
         let targetUrl = "/marketplace";
-        let label = "Explore Marketplace (ਮਾਰਕੀਟਪਲੇਸ)";
+        let label =
+          lang === "pa"
+            ? "ਮਾਰਕੀਟਪਲੇਸ"
+            : lang === "hi"
+            ? "मार्केटप्लेस"
+            : "Marketplace";
+
         if (dest === "courses") {
           targetUrl = "/artisan/courses/all";
-          label = "Craft Courses (ਕੋਰਸ)";
+          label = lang === "pa" ? "ਦਸਤਕਾਰੀ ਕੋਰਸ" : lang === "hi" ? "क्राफ्ट कोर्सेज" : "Craft Courses";
         } else if (dest === "about") {
           targetUrl = "/about-us";
-          label = "About SkillBridge (ਸਾਡੇ ਬਾਰੇ)";
+          label = lang === "pa" ? "ਸਾਡੇ ਬਾਰੇ" : lang === "hi" ? "हमारे बारे में" : "About Us";
         } else if (dest === "artisans") {
           targetUrl = "/artisans";
-          label = "Meet Artisans (ਦਸਤਕਾਰਾਂ ਨੂੰ ਮਿਲੋ)";
+          label = lang === "pa" ? "ਦਸਤਕਾਰਾਂ ਨੂੰ ਮਿਲੋ" : lang === "hi" ? "कारीगरों से मिलें" : "Meet Artisans";
         }
 
-        const reply = lang === "pa" ? `ਮੈਂ ਤੁਹਾਨੂੰ ${label} ਪੇਜ 'ਤੇ ਲੈ ਚੱਲਦਾ ਹਾਂ।` : `Navigating to ${label}.`;
+        const reply =
+          lang === "pa"
+            ? `ਮੈਂ ਤੁਹਾਨੂੰ ${label} ਪੇਜ 'ਤੇ ਲੈ ਚੱਲਦਾ ਹਾਂ।`
+            : lang === "hi"
+            ? `मैं आपको ${label} पेज पर ले चलता हूँ।`
+            : `Navigating to ${label}.`;
+
         return res.status(200).json({
           success: true,
           reply,
@@ -1219,6 +1430,110 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
   const { type, data } = pendingAction;
 
   switch (type) {
+    case "CONFIRM_GUIDED_SHOP": {
+      let existingShop = await Shop.findOne({ artisan: artisanUser._id });
+      let savedShop;
+      const combinedDesc = data.description?.trim() + (data.speciality?.trim() ? ` Speciality: ${data.speciality.trim()}` : "");
+
+      if (existingShop) {
+        existingShop.name = data.name.trim();
+        existingShop.category = data.category.trim();
+        existingShop.location = data.location?.trim() || existingShop.location || "";
+        existingShop.description = combinedDesc || existingShop.description;
+        if (data.logo) existingShop.logo = data.logo;
+        savedShop = await existingShop.save();
+      } else {
+        savedShop = await Shop.create({
+          artisan: artisanUser._id,
+          name: data.name.trim(),
+          category: data.category.trim(),
+          location: data.location?.trim() || "",
+          description: combinedDesc || "Authentic artisan shop",
+          logo: data.logo || "",
+          banner: data.banner || "",
+        });
+      }
+
+      const successMsg =
+        language === "pa"
+          ? `🎉 ਮੁਬਾਰਕਾਂ! ਤੁਹਾਡੀ ਦੁਕਾਨ '${savedShop.name}' ਸਫਲਤਾਪੂਰਵਕ ਬਣ ਗਈ ਹੈ। ਹੁਣ ਤੁਸੀਂ ਉਤਪਾਦ ਜੋੜ ਸਕਦੇ ਹੋ!`
+          : language === "hi"
+          ? `🎉 बधाई हो! आपकी दुकान '${savedShop.name}' सफलतापूर्वक बन गई है। अब आप उत्पाद जोड़ सकते हैं!`
+          : `🎉 Congratulations! Your shop '${savedShop.name}' has been created successfully. You can now add products!`;
+
+      return res.status(200).json({
+        success: true,
+        reply: successMsg,
+        speechText: cleanForSpeech(successMsg),
+        pendingAction: null,
+        actionData: {
+          shop: savedShop.toSafeObject ? savedShop.toSafeObject() : savedShop,
+          navigation: {
+            label: language === "pa" ? "ਮੇਰੀ ਦੁਕਾਨ ਦੇਖੋ" : language === "hi" ? "मेरी दुकान देखें" : "View My Shop",
+            path: "/artisan/profile?tab=shop",
+          },
+        },
+      });
+    }
+
+    case "CONFIRM_GUIDED_PRODUCT": {
+      if (!shop) {
+        shop = await Shop.findOne({ artisan: artisanUser._id });
+      }
+      if (!shop) {
+        shop = await Shop.create({
+          artisan: artisanUser._id,
+          name: `${artisanUser.name}'s Shop`,
+          category: data.category || artisanUser.artCategory || "Handicrafts",
+          location: artisanUser.city || "Punjab",
+          description: "Authentic handmade craft shop.",
+        });
+      }
+
+      const parsedMaterials = Array.isArray(data.materials)
+        ? data.materials
+        : typeof data.materials === "string" && data.materials.trim()
+        ? data.materials.split(",").map((m) => m.trim()).filter(Boolean)
+        : [];
+
+      const product = await Product.create({
+        artisan: artisanUser._id,
+        shop: shop._id,
+        title: data.title.trim(),
+        category: data.category?.trim() || "Handicrafts",
+        price: Number(data.price),
+        stock: Number(data.stock),
+        description: data.description?.trim() || `Handcrafted ${data.title} by ${artisanUser.name}.`,
+        materials: parsedMaterials,
+        craftTime: data.craftTime?.trim() || "",
+        image: data.image || "",
+        images: data.image ? [data.image] : [],
+        status: "Published",
+        isPublished: true,
+      });
+
+      const successMsg =
+        language === "pa"
+          ? `🎉 ਸ਼ਾਨਦਾਰ! ਤੁਹਾਡਾ ਉਤਪਾਦ '${product.title}' ਤਿਆਰ ਹੋ ਕੇ ਮਾਰਕੀਟਪਲੇਸ ਵਿੱਚ ਪਬਲਿਸ਼ ਹੋ ਗਿਆ ਹੈ।`
+          : language === "hi"
+          ? `🎉 बहुत बढ़िया! आपका उत्पाद '${product.title}' तैयार होकर मार्केटप्लेस में प्रकाशित हो चुका है।`
+          : `🎉 Excellent! Your product '${product.title}' has been published to the marketplace successfully.`;
+
+      return res.status(200).json({
+        success: true,
+        reply: successMsg,
+        speechText: cleanForSpeech(successMsg),
+        pendingAction: null,
+        actionData: {
+          product: product.toSafeObject ? product.toSafeObject(artisanUser.name, shop.location) : product,
+          navigation: {
+            label: language === "pa" ? "ਉਤਪਾਦ ਸੂਚੀ ਦੇਖੋ" : language === "hi" ? "उत्पाद सूची देखें" : "View Product Listing",
+            path: "/artisan/profile?tab=products",
+          },
+        },
+      });
+    }
+
     case "CONFIRM_ADD_PRODUCT": {
       if (!shop) {
         shop = await Shop.findOne({ artisan: artisanUser._id });
@@ -1263,6 +1578,8 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
       const delMsg =
         language === "pa"
           ? `'${data.title}' ਉਤਪਾਦ ਸਫਲਤਾਪੂਰਵਕ ਮਿਟਾ ਦਿੱਤਾ ਗਿਆ ਹੈ।`
+          : language === "hi"
+          ? `'${data.title}' उत्पाद सफलतापूर्वक हटा दिया गया है।`
           : `'${data.title}' has been deleted successfully.`;
 
       return res.status(200).json({
@@ -1287,6 +1604,8 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
       const updMsg =
         language === "pa"
           ? `'${data.title}' ਦਾ ਵੇਰਵਾ ਅਪਡੇਟ ਹੋ ਗਿਆ ਹੈ!`
+          : language === "hi"
+          ? `'${data.title}' का विवरण सफलतापूर्वक अपडेट हो गया है!`
           : `'${data.title}' details updated successfully!`;
 
       return res.status(200).json({
@@ -1314,6 +1633,8 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
       const profMsg =
         language === "pa"
           ? "ਤੁਹਾਡੀ ਪ੍ਰੋਫਾਈਲ ਸਫਲਤਾਪੂਰਵਕ ਅਪਡੇਟ ਹੋ ਗਈ ਹੈ।"
+          : language === "hi"
+          ? "आपकी प्रोफाइल सफलतापूर्वक अपडेट हो गई है।"
           : "Your profile has been updated successfully.";
 
       return res.status(200).json({
@@ -1356,6 +1677,8 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
       const accMsg =
         language === "pa"
           ? `ਆਰਡਰ #${order.orderNumber || order._id.toString().slice(-6)} ਸਵੀਕਾਰ ਕਰ ਲਿਆ ਗਿਆ ਹੈ! ਪ੍ਰੋਸੈਸਿੰਗ ਸ਼ੁਰੂ ਹੋ ਗਈ ਹੈ।`
+          : language === "hi"
+          ? `ऑर्डर #${order.orderNumber || order._id.toString().slice(-6)} स्वीकार कर लिया गया है! निर्माण कार्य शुरू हो गया है।`
           : `Order #${order.orderNumber || order._id.toString().slice(-6)} accepted! Production has started.`;
 
       return res.status(200).json({
@@ -1387,6 +1710,8 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
       const compMsg =
         language === "pa"
           ? `ਆਰਡਰ #${order.orderNumber || order._id.toString().slice(-6)} ਪੂਰਾ ਮਾਰਕ ਕਰ ਦਿੱਤਾ ਗਿਆ ਹੈ!`
+          : language === "hi"
+          ? `ऑर्डर #${order.orderNumber || order._id.toString().slice(-6)} पूरा मार्क कर दिया गया है!`
           : `Order #${order.orderNumber || order._id.toString().slice(-6)} marked as completed!`;
 
       return res.status(200).json({
@@ -1416,6 +1741,8 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
       const projMsg =
         language === "pa"
           ? `ਪ੍ਰੋਜੈਕਟ '${project.title}' ਸਫਲਤਾਪੂਰਵਕ ਸਵੀਕਾਰ ਕਰ ਲਿਆ ਗਿਆ ਹੈ!`
+          : language === "hi"
+          ? `प्रोजेक्ट '${project.title}' सफलतापूर्वक स्वीकार कर लिया गया है!`
           : `Project '${project.title}' has been accepted successfully!`;
 
       return res.status(200).json({
