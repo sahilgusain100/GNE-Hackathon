@@ -111,6 +111,20 @@ const ExpertDashboardPage = () => {
   const [newLessonModal, setNewLessonModal] = useState(null)
   const [isAddingLesson, setIsAddingLesson] = useState(false)
 
+  // Prevent back screen scrolling when preview or add lesson modal is open
+  useEffect(() => {
+    if (activePreview || newLessonModal) {
+      const originalBodyOverflow = document.body.style.overflow
+      const originalHtmlOverflow = document.documentElement.style.overflow
+      document.body.style.overflow = 'hidden'
+      document.documentElement.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = originalBodyOverflow
+        document.documentElement.style.overflow = originalHtmlOverflow
+      }
+    }
+  }, [activePreview, newLessonModal])
+
   // Reset form to default blank creation state
   const resetForm = () => {
     setEditingCourseId(null)

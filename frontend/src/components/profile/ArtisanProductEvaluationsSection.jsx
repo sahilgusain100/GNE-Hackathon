@@ -59,6 +59,29 @@ const ArtisanProductEvaluationsSection = () => {
   // Detail Modal state (for viewing full evaluation breakdown)
   const [selectedEvaluation, setSelectedEvaluation] = useState(null)
 
+  // Lock background body scroll whenever any modal is open
+  useEffect(() => {
+    if (isModalOpen || selectedEvaluation) {
+      const originalBodyOverflow = document.body.style.overflow
+      const originalHtmlOverflow = document.documentElement.style.overflow
+      const originalPaddingRight = document.body.style.paddingRight
+
+      const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth
+      if (scrollBarWidth > 0) {
+        document.body.style.paddingRight = `${scrollBarWidth}px`
+      }
+
+      document.body.style.overflow = 'hidden'
+      document.documentElement.style.overflow = 'hidden'
+
+      return () => {
+        document.body.style.overflow = originalBodyOverflow
+        document.documentElement.style.overflow = originalHtmlOverflow
+        document.body.style.paddingRight = originalPaddingRight
+      }
+    }
+  }, [isModalOpen, selectedEvaluation])
+
   // Fetch evaluated submissions & existing products on mount
   const loadEvaluations = async () => {
     setIsLoading(true)
@@ -562,7 +585,7 @@ const ArtisanProductEvaluationsSection = () => {
           MODAL: Submit Product for Evaluation
       ======================================================== */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain">
           <div className="relative w-full max-w-xl rounded-2xl border border-border bg-surface p-6 sm:p-8 shadow-2xl my-8">
             <button
               aria-label="Close modal"
@@ -797,7 +820,7 @@ const ArtisanProductEvaluationsSection = () => {
           MODAL: Detailed Evaluation Report
       ======================================================== */}
       {selectedEvaluation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain">
           <div className="relative w-full max-w-2xl rounded-2xl border border-border bg-surface p-6 sm:p-8 shadow-2xl my-8">
             <button
               aria-label="Close modal"

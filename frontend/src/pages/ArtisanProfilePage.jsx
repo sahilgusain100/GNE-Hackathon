@@ -19,6 +19,7 @@ import {
   Phone,
   Search,
   Store,
+  Trash2,
   Truck,
   UserRound,
   WalletCards,
@@ -39,6 +40,8 @@ import {
   getArtisanListingsApi,
   createArtisanListingApi,
   publishArtisanListingApi,
+  unpublishArtisanListingApi,
+  deleteArtisanListingApi,
   getArtisanOrdersApi,
   updateArtisanOrderStatusApi,
   getArtisanCoursesApi,
@@ -119,6 +122,8 @@ const ArtisanProfilePage = () => {
     error: '',
   })
   const { listings, error: listingStorageError } = savedListingState
+  const [publishingListingId, setPublishingListingId] = useState(null)
+  const [deletingListingId, setDeletingListingId] = useState(null)
   const [savedShopState, setSavedShopState] = useState({
     shop: null,
     error: '',
@@ -391,18 +396,23 @@ const ArtisanProfilePage = () => {
   }
 
   const handlePublishListing = async (listingId) => {
+    if (!listingId) return
     setListingNotice('')
     setListingError(false)
+    setPublishingListingId(listingId)
     try {
       const res = await publishArtisanListingApi(listingId)
       if (res?.listing) {
         setSavedListingState((state) => ({
           listings: state.listings.map((listing) =>
-            (listing.id === listingId || listing._id === listingId) ? res.listing : listing,
+            (listing.id === listingId || listing._id === listingId || listing.listingId === listingId)
+              ? res.listing
+              : listing,
           ),
           error: '',
         }))
         setListingNotice('Your product is now published in the marketplace.')
+        setListingError(false)
       } else {
         throw new Error(res?.message || 'Unable to publish this product.')
       }
@@ -410,6 +420,78 @@ const ArtisanProfilePage = () => {
       console.error('Unable to publish product listing.', error)
       setListingNotice(error.message || 'Unable to publish this product.')
       setListingError(true)
+    } finally {
+      setPublishingListingId(null)
+    }
+  }
+
+  const handleUnpublishListing = async (listingId) => {
+    if (!listingId) return
+    setListingNotice('')
+    setListingError(false)
+    setPublishingListingId(listingId)
+    try {
+      const res = await unpublishArtisanListingApi(listingId)
+      if (res?.listing) {
+        setSavedListingState((state) => ({
+          listings: state.listings.map((listing) =>
+            (listing.id === listingId || listing._id === listingId || listing.listingId === listingId)
+              ? res.listing
+              : listing,
+          ),
+          error: '',
+        }))
+        setListingNotice('Product moved to drafts.')
+        setListingError(false)
+      } else {
+        throw new Error(res?.message || 'Unable to unpublish this product.')
+      }
+    } catch (error) {
+      console.error('Unable to unpublish product listing.', error)
+      setListingNotice(error.message || 'Unable to unpublish this product.')
+      setListingError(true)
+    } finally {
+      setPublishingListingId(null)
+    }
+  }
+
+  const handleDeleteListing = async (listingId, listingTitle = 'this product') => {
+    if (!listingId) return
+    if (
+      !window.confirm(
+        `Are you sure you want to delete "${listingTitle}"? This will permanently remove the product.`
+      )
+    ) {
+      return
+    }
+
+    setListingNotice('')
+    setListingError(false)
+    setDeletingListingId(listingId)
+
+    try {
+      const res = await deleteArtisanListingApi(listingId)
+      if (res?.success) {
+        setSavedListingState((state) => ({
+          listings: state.listings.filter(
+            (listing) =>
+              listing.id !== listingId &&
+              listing._id !== listingId &&
+              listing.listingId !== listingId
+          ),
+          error: '',
+        }))
+        setListingNotice(`"${listingTitle}" has been deleted successfully.`)
+        setListingError(false)
+      } else {
+        throw new Error(res?.message || 'Unable to delete this product.')
+      }
+    } catch (error) {
+      console.error('Unable to delete product listing.', error)
+      setListingNotice(error.message || 'Unable to delete this product.')
+      setListingError(true)
+    } finally {
+      setDeletingListingId(null)
     }
   }
 
@@ -1184,42 +1266,91 @@ const ArtisanProfilePage = () => {
                         <th className="px-4 py-3 font-semibold">Price</th>
                         <th className="px-4 py-3 font-semibold">Stock</th>
                         <th className="px-4 py-3 font-semibold">Status</th>
-                        <th className="px-4 py-3 font-semibold">Marketplace</th>
+                        <th className="px-4 py-3 font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {listings.map((listing) => (
-                        <tr key={listing.id}>
-                          <td className="px-4 py-4">
-                            <p className="font-semibold text-text-main">{listing.title}</p>
-                            <p className="mt-1 text-xs text-text-muted">{listing.category}</p>
-                          </td>
-                          <td className="px-4 py-4 text-text-secondary">
-                            ₹{listing.price.toLocaleString('en-IN')}
-                          </td>
-                          <td className="px-4 py-4 text-text-secondary">{listing.stock}</td>
-                          <td className="px-4 py-4">
-                            <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-semibold text-secondary">
-                              {listing.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4">
-                            {listing.status === 'Published' ? (
-                              <span className="text-xs font-medium text-success">
-                                Visible to buyers
-                              </span>
-                            ) : (
-                              <button
-                                className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white transition hover:bg-primary-hover"
-                                onClick={() => handlePublishListing(listing.id)}
-                                type="button"
+                      {listings.map((listing) => {
+                        const targetId = listing.id || listing._id || listing.listingId
+                        const isPublishing = publishingListingId === targetId
+                        const isDeleting = deletingListingId === targetId
+
+                        return (
+                          <tr key={targetId}>
+                            <td className="px-4 py-4">
+                              <p className="font-semibold text-text-main">{listing.title}</p>
+                              <p className="mt-1 text-xs text-text-muted">{listing.category}</p>
+                            </td>
+                            <td className="px-4 py-4 text-text-secondary">
+                              ₹{listing.price.toLocaleString('en-IN')}
+                            </td>
+                            <td className="px-4 py-4 text-text-secondary">{listing.stock}</td>
+                            <td className="px-4 py-4">
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                  listing.status === 'Published'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-surface-muted text-secondary'
+                                }`}
                               >
-                                Publish
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                                {listing.status || 'Draft'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-2">
+                                {listing.status === 'Published' ? (
+                                  <>
+                                    <span className="text-xs font-medium text-success mr-1">
+                                      Visible to buyers
+                                    </span>
+                                    <button
+                                      className="rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs font-semibold text-text-secondary transition hover:bg-surface-muted hover:text-text-main disabled:opacity-50 cursor-pointer"
+                                      disabled={isPublishing || isDeleting}
+                                      onClick={() => handleUnpublishListing(targetId)}
+                                      title="Unpublish product and move to drafts"
+                                      type="button"
+                                    >
+                                      {isPublishing ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        'Unpublish'
+                                      )}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-hover disabled:opacity-50 cursor-pointer"
+                                    disabled={isPublishing || isDeleting}
+                                    onClick={() => handlePublishListing(targetId)}
+                                    type="button"
+                                  >
+                                    {isPublishing ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Upload className="h-3.5 w-3.5" />
+                                    )}
+                                    Publish
+                                  </button>
+                                )}
+                                <button
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 hover:border-rose-300 disabled:opacity-50 cursor-pointer"
+                                  disabled={isDeleting || isPublishing}
+                                  onClick={() => handleDeleteListing(targetId, listing.title)}
+                                  title="Delete product draft"
+                                  type="button"
+                                >
+                                  {isDeleting ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
