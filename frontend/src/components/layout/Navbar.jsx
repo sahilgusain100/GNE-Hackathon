@@ -8,7 +8,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
-import Nav from './Nav'
+import Nav from './Nav.jsx'
 
 const Navbar = ({
   variant = 'home',
