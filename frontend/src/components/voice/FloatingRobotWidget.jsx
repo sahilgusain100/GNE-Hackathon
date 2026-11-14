@@ -32,7 +32,6 @@ const FloatingRobotWidget = ({ user: propUser }) => {
   const mascotGreeting = useMemo(() => {
     if (activeUser?.accountType === 'artisan') {
       return {
-<<<<<<< HEAD
         title: 'Artisan AI Studio',
         subtitle: 'Shop · Products · Earnings',
         punjabi: 'ਦੁਕਾਨ ਬਣਾਓ, ਉਤਪਾਦ ਜੋੜੋ ਜਾਂ ਕੁਝ ਵੀ ਪੁੱਛੋ',
@@ -53,11 +52,6 @@ const FloatingRobotWidget = ({ user: propUser }) => {
           { label: '📦 ਆਰਡਰ ਟ੍ਰੈਕ ਕਰੋ', query: 'Track my order' },
           { label: '💬 ਸਹਾਇਤਾ ਕੇਂਦਰ', query: 'Contact support' },
         ],
-=======
-        title: 'Artisan Assistant',
-        subtitle: 'Orders · Products · Earnings',
-        punjabi: 'ਬੋਲ ਕੇ ਆਰਡਰ ਤੇ ਉਤਪਾਦ ਸੰਭਾਲੋ',
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
       }
     }
     if (pathname.includes('/artisan/auth')) {

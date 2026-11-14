@@ -296,7 +296,6 @@ Understand natural spoken requests in English, Hindi, Hinglish, or Punjabi (Gurm
 Determine the artisan's INTENT and extract any ENTITIES.
 
 SUPPORTED INTENTS:
-<<<<<<< HEAD
 1. START_GUIDED_SHOP: Guided shop creation workflow ("Create my shop", "Meri dukan banao", "ਮੇਰੀ ਦੁਕਾਨ ਬਣਾਓ", "दुकान बनानी है", "Open my shop", "Setup shop")
 2. START_GUIDED_PRODUCT: Guided product creation workflow ("Add a product", "Naya product jodna hai", "ਉਤਪਾਦ ਜੋੜੋ", "उत्पाद जोड़ें", "List a product", "Add craft")
 3. ASK_ME_ANYTHING: General Q&A / Platform queries ("Ask me anything", "Kuch bhi poocho", "ਕੁਝ ਵੀ ਪੁੱਛੋ", "कुछ भी पूछें", "What is SkillBridge", "How do payments work?")
@@ -339,15 +338,6 @@ SUPPORTED INTENTS:
 28. SIGNUP_HELP: Help registering or starting voice registration ("Register as artisan", "Voice signup", "ਰਜਿਸਟਰ ਕਰੋ", "Account banana hai") - Entities: { role?: "artisan" | "customer" | "expert" | "industry", isVoice?: boolean }
 29. NAVIGATE: Navigate across platform ("Go to marketplace", "Craft courses", "About us", "ਮਾਰਕੀਟਪਲੇਸ") - Entities: { destination?: "marketplace" | "courses" | "about" | "artisans" }
 30. UNKNOWN: Unrelated or general conversation.
-=======
-1. PROFILE_UPDATE: State personal info, craft, skills, experience, city, or phone
-   Examples:
-   - "I am a tailor with five years of experience"
-   - "मैं सिलाई का काम करती हूँ और मुझे पाँच साल का अनुभव है"
-   - "ਮੈਂ ਸਿਲਾਈ ਦਾ ਕੰਮ ਕਰਦੀ ਹਾਂ ਅਤੇ ਮੈਨੂੰ ਪੰਜ ਸਾਲ ਦਾ ਤਜਰਬਾ ਹੈ"
-   - "Change name to Sunita", "I live in Patiala", "Update phone to 9876543210"
-   Entities: { name?, phone?, city?, state?, skills: string[], artCategory?, experience?, bio? }
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
 
 2. PROFILE_GET: View saved profile
    Examples: "Show my profile", "Mera profile dikhao", "ਮੇਰੀ ਪ੍ਰੋਫਾਈਲ ਦਿਖਾਓ", "What are my details?"
@@ -442,7 +432,6 @@ Extract JSON only.`;
 }
 
 /**
-<<<<<<< HEAD
  * Call Groq to parse intent
  */
 async function callGroqForIntent(message, artisanContext = {}, userLanguage = "pa") {
@@ -479,30 +468,18 @@ async function callGroqForIntent(message, artisanContext = {}, userLanguage = "p
  */
 export function deterministicIntentMatcher(message = "", userLanguage = "pa") {
   const raw = message.trim();
-=======
- * Comprehensive Deterministic Intent Matcher
- * Highly accurate across English, Hindi, and Punjabi
- */
-export function deterministicIntentMatcher(message = "") {
-  const raw = String(message).trim();
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
   const lower = raw.toLowerCase();
-  const detectedLanguage = detectSpokenLanguage(raw);
 
-<<<<<<< HEAD
   // Language detection: prioritize explicit script, fallback to userLanguage
   const hasGurmukhi = /[\u0A00-\u0A7F]/.test(raw);
   const hasDevanagari = /[\u0900-\u097F]/.test(raw);
   const detectedLanguage = hasGurmukhi ? "pa" : hasDevanagari ? "hi" : (userLanguage || "en");
 
   // Check Affirmation / Negation
-=======
-  // 1. AFFIRMATION & NEGATION
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
   if (
     lower === "yes" || lower === "yeah" || lower === "yup" || lower === "ok" || lower === "okay" ||
     lower === "haan" || lower === "haanji" || lower === "sahi hai" || lower === "theek hai" ||
-    lower === "confirm" || raw === "ਹਾਂ" || raw === "ਹਾਂਜੀ" || raw === "ਠੀਕ ਹੈ" ||
+    lower === "confirm" || raw === "ਹਾਂ" || raw === "ਹਾਂਜੀ" || raw === "ਠੀਕ ਹੈ" || raw === "ਸਹੀ ਹੈ" ||
     raw === "हाँ" || raw === "हाँजी" || raw === "सही है" || raw === "ठीक है"
   ) {
     return { intent: "AFFIRMATION", entities: {}, detectedLanguage, confidence: 0.98 };
@@ -512,12 +489,11 @@ export function deterministicIntentMatcher(message = "") {
     lower === "no" || lower === "nope" || lower === "cancel" || lower === "stop" ||
     lower === "nahi" || lower === "nahin" || lower === "mat karo" ||
     raw === "ਨਹੀਂ" || raw === "ਰੱਦ ਕਰੋ" || raw === "ਰੋਕੋ" ||
-    raw === "नहीं" || raw === "रद्द करो" || raw === "रोको"
+    raw === "नहीं" || raw === "रद्द करो" || raw === "रद्द करें" || raw === "रोको"
   ) {
     return { intent: "NEGATION", entities: {}, detectedLanguage, confidence: 0.98 };
   }
 
-<<<<<<< HEAD
   // 1. GUIDED WORKFLOW OPTIONS
   if (
     lower.includes("create my shop") ||
@@ -572,9 +548,6 @@ export function deterministicIntentMatcher(message = "") {
   }
 
   // GREETINGS & SOCIAL INTENTS
-=======
-  // 2. GREETINGS
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
   if (
     lower.startsWith("hello") || lower.startsWith("hi") || lower.startsWith("hey") ||
     lower.includes("sat sri akal") || lower.includes("satsriakal") ||
@@ -814,7 +787,6 @@ export function deterministicIntentMatcher(message = "") {
 /**
  * Main intent parsing entry point with fallback
  */
-<<<<<<< HEAD
 export async function parseArtisanIntent(message, artisanContext = {}, userLanguage = "pa") {
   const trimmed = (message || "").trim();
   if (!trimmed) {
@@ -824,12 +796,10 @@ export async function parseArtisanIntent(message, artisanContext = {}, userLangu
   let result = null;
 
   // Try LLM if configured
-=======
-export async function parseArtisanIntent(message, artisanContext = {}) {
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
   const provider = getLlmProvider();
+  const groqKey = getGroqKey();
+  const geminiKey = getGeminiKey();
 
-<<<<<<< HEAD
   if (provider === "groq" && groqKey) {
     try {
       result = await callGroqForIntent(trimmed, artisanContext, userLanguage);
@@ -843,20 +813,9 @@ export async function parseArtisanIntent(message, artisanContext = {}) {
       result = await callGeminiForIntent(trimmed, artisanContext, userLanguage);
     } catch (e) {
       console.warn("Gemini intent parsing failed, falling back:", e.message);
-=======
-  try {
-    if (provider === "groq" && getGroqKey()) {
-      return await callGroqForIntent(message, artisanContext);
     }
-    if (provider === "gemini" && getGeminiKey()) {
-      return await callGeminiForIntent(message, artisanContext);
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
-    }
-  } catch (error) {
-    console.warn(`LLM parser (${provider}) unavailable, using deterministic matcher:`, error.message);
   }
 
-<<<<<<< HEAD
   // Fallback to deterministic NLP matcher
   if (!result || !result.intent) {
     result = deterministicIntentMatcher(trimmed, userLanguage);
@@ -867,7 +826,4 @@ export async function parseArtisanIntent(message, artisanContext = {}) {
   }
 
   return result;
-=======
-  return deterministicIntentMatcher(message);
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
 }

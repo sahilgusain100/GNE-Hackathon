@@ -64,9 +64,17 @@ export const handleVoiceAssistantMessage = async (req, res) => {
     }
 
     const trimmedMsg = message.trim();
+    const hasPunjabiScript = /[\u0A00-\u0A7F]/.test(trimmedMsg);
+    const hasHindiScript = /[\u0900-\u097F]/.test(trimmedMsg);
     const detectedLang = detectSpokenLanguage(trimmedMsg);
-    // Prefer detected language over requested language if user spoke in a specific script/pattern
-    const lang = detectedLang || reqLanguage || "pa";
+    const lang = hasPunjabiScript
+      ? "pa"
+      : hasHindiScript
+      ? "hi"
+      : detectedLang !== "en"
+      ? detectedLang
+      : reqLanguage || detectedLang;
+    const language = lang;
 
     // Fetch current artisan shop for context if logged in as artisan
     const shop = isArtisan ? await Shop.findOne({ artisan: activeUser._id }) : null;
@@ -281,7 +289,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
 
     // ========================================================
     // Step 2: Parse Intent & Entities from message
-<<<<<<< HEAD
     const parsed = await parseArtisanIntent(
       trimmedMsg,
       {
@@ -291,14 +298,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
       },
       language
     );
-=======
-    // ========================================================
-    const parsed = await parseArtisanIntent(trimmedMsg, {
-      name: activeUser?.name || "Guest",
-      id: activeUser?._id ? activeUser._id.toString() : "",
-      shopName: shop?.name || "",
-    });
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
 
     const entities = parsed.entities || {};
 
@@ -306,7 +305,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
     // Step 3: Route to Structured Function Calling Handlers
     // ========================================================
     switch (parsed.intent) {
-<<<<<<< HEAD
       // --- GUIDED WORKFLOW INTENTS ---
       case "START_GUIDED_SHOP": {
         if (!artisanUser) {
@@ -459,13 +457,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
             : lang === "hi"
             ? `नमस्ते${userName}! मैं स्किलब्रिज का AI मैस्कॉट और सहायक हूँ। मैं उत्पाद ढूँढने, ऑर्डर ट्रैक करने, बोलकर रजिस्ट्रेशन करने, या दुकान संभालने में आपकी मदद करूँगा। आप क्या करना चाहते हैं?`
             : `Hello${userName}! I am your SkillBridge AI Mascot. I can help you discover authentic handmade crafts, track your orders, register as an artisan with voice, or manage your shop. How can I help you today?`;
-=======
-      // ----------------------------------------------------
-      // A. ARTISAN PROFILE OPERATIONS
-      // ----------------------------------------------------
-      case "PROFILE_UPDATE": {
-        const updates = {};
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
 
         if (entities.skills && entities.skills.length > 0) {
           updates.skills = entities.skills;
@@ -773,6 +764,91 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         });
       }
 
+      case "PROFILE_UPDATE": {
+        const updates = {};
+        if (entities.skills?.length) {
+          updates.skills = entities.skills;
+          updates.artCategory = entities.skills[0];
+        } else if (entities.artCategory) {
+          updates.artCategory = entities.artCategory;
+          updates.skills = [entities.artCategory];
+        }
+        if (entities.experience) updates.experience = entities.experience;
+        if (entities.city) updates.city = entities.city;
+        if (entities.name) updates.name = entities.name;
+        if (entities.phone) updates.phone = entities.phone;
+        if (entities.bio) updates.bio = entities.bio;
+
+        if (!isArtisan) {
+          const prompt =
+            lang === "pa"
+              ? "ਮੈਂ ਤੁਹਾਡੇ ਦਸਤਕਾਰੀ ਵੇਰਵੇ ਨੋਟ ਕਰ ਲਏ ਹਨ। ਤੁਹਾਡਾ ਪੂਰਾ ਨਾਂ ਕੀ ਹੈ ਜੀ?"
+              : lang === "hi"
+              ? "मैंने आपके कारीगरी के विवरण नोट कर लिए हैं। आपका पूरा नाम क्या है?"
+              : "I have noted your craft details. What is your full name?";
+          return res.status(200).json({
+            success: true,
+            reply: prompt,
+            speechText: cleanForSpeech(prompt),
+            detectedLanguage: lang,
+            pendingAction: {
+              type: "PROFILE_CREATION_SESSION",
+              collected: updates,
+              currentField: "name",
+            },
+          });
+        }
+
+        if (Object.keys(updates).length === 0) {
+          const prompt =
+            lang === "pa"
+              ? "ਤੁਸੀਂ ਆਪਣੀ ਪ੍ਰੋਫਾਈਲ ਵਿੱਚ ਕੀ ਬਦਲਣਾ ਚਾਹੁੰਦੇ ਹੋ?"
+              : lang === "hi"
+              ? "आप अपनी प्रोफाइल में क्या बदलना चाहते हैं?"
+              : "What would you like to update in your profile?";
+          return res.status(200).json({
+            success: true,
+            reply: prompt,
+            speechText: cleanForSpeech(prompt),
+            detectedLanguage: lang,
+          });
+        }
+
+        const result = await updateArtisanProfile(activeUser._id, updates);
+        const summary = [
+          updates.skills?.length && `Skills: ${updates.skills.join(", ")}`,
+          updates.experience && `Experience: ${updates.experience}`,
+          updates.city && `Location: ${updates.city}`,
+          updates.name && `Name: ${updates.name}`,
+        ]
+          .filter(Boolean)
+          .join(", ");
+        const reply =
+          lang === "pa"
+            ? `ਤੁਹਾਡੀ ਪ੍ਰੋਫਾਈਲ (${summary}) ਸਫਲਤਾਪੂਰਵਕ ਅਪਡੇਟ ਹੋ ਗਈ ਹੈ।`
+            : lang === "hi"
+            ? `आपकी प्रोफाइल (${summary}) सफलतापूर्वक अपडेट हो गई है।`
+            : `Your profile details (${summary}) have been successfully updated.`;
+
+        return res.status(200).json({
+          success: true,
+          reply,
+          speechText: cleanForSpeech(reply),
+          detectedLanguage: lang,
+          pendingAction: result.completion.isComplete
+            ? null
+            : {
+                type: "SLOT_FILLING_PROFILE",
+                targetField: result.completion.nextMissingField?.field,
+              },
+          actionData: {
+            user: result.user,
+            completion: result.completion,
+            profileCard: true,
+          },
+        });
+      }
+
       case "PROFILE_CREATE": {
         const initialAnswers = {
           name: entities.name || activeUser?.name || "",
@@ -944,7 +1020,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         });
       }
 
-<<<<<<< HEAD
       case "PRODUCT_SEARCH": {
         const query = (entities.query || "").trim();
         let matched = [];
@@ -1100,11 +1175,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
       }
 
       // --- C. ORDER MANAGEMENT ---
-=======
-      // ----------------------------------------------------
-      // C. ORDERS & TRACKING
-      // ----------------------------------------------------
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
       case "ORDER_LIST": {
         if (isCustomer) {
           const custOrders = await Order.find({ customer: activeUser._id }).sort({ createdAt: -1 }).limit(5);
@@ -1150,7 +1220,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         });
       }
 
-<<<<<<< HEAD
       case "ORDER_ACCEPT": {
         const orderNumberQuery = entities.orderNumber || "";
         let order = null;
@@ -1244,11 +1313,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
       }
 
       // --- D. PAYMENTS & EARNINGS ---
-=======
-      // ----------------------------------------------------
-      // D. EARNINGS & PAYMENTS
-      // ----------------------------------------------------
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
       case "PAYMENT_SUMMARY":
       case "PAYMENT_PENDING": {
         if (!isArtisan) {
@@ -1302,7 +1366,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         });
       }
 
-<<<<<<< HEAD
       // --- F. INDUSTRIALISTS & COLLABORATIONS ---
       case "FIND_INDUSTRIALISTS":
       case "COLLABORATION_REQUESTS": {
@@ -1419,12 +1482,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
         const reply =
           lang === "pa"
             ? `${roleLabel} ਲੌਗਇਨ ਲਈ ਮੈਂ ਤੁਹਾਨੂੰ ਲੌਗਇਨ ਪੇਜ 'ਤੇ ਲੈ ਜਾਂਦਾ ਹਾਂ। ਹੇਠਾਂ ਦਿੱਤੇ ਬਟਨ 'ਤੇ ਕਲਿੱਕ ਕਰੋ।`
-=======
-      case "ABOUT_PLATFORM": {
-        const aboutReply =
-          lang === "pa"
-            ? "ਸਕਿੱਲਬ੍ਰਿਜ ਭਾਰਤੀ ਦਸਤਕਾਰਾਂ ਅਤੇ ਪੇਂਡੂ ਮਹਿਲਾ ਕਾਰੀਗਰਾਂ ਲਈ ਇੱਕ ਵਿਸ਼ੇਸ਼ ਪਲੇਟਫਾਰਮ ਹੈ ਜਿੱਥੇ ਕੋਈ ਵਿਚੋਲਾ ਨਹੀਂ ਹੈ। ਤੁਸੀਂ ਇੱਥੇ ਹੱਥੀਂ ਬਣੇ ਉਤਪਾਦ ਵੇਚ ਸਕਦੇ ਹੋ, ਆਰਡਰ ਲੈ ਸਕਦੇ ਹੋ ਅਤੇ ਸਿੱਧਾ ਉਦਯੋਗਾਂ ਨਾਲ ਜੁੜ ਸਕਦੇ ਹੋ।"
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
             : lang === "hi"
             ? "स्किलब्रिज भारतीय कारीगरों और ग्रामीण महिला शिल्पकारों का प्लेटफॉर्म है। यहाँ बिना किसी बिचौलिए के आप सीधे उत्पाद बेच सकते हैं और बड़े ब्रांड्स से काम पा सकते हैं।"
             : "SkillBridge connects authentic rural Indian artisans directly with customers and ethical industries, ensuring zero middleman deductions and direct bank payments.";
@@ -1445,7 +1502,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
 
         return res.status(200).json({
           success: true,
-<<<<<<< HEAD
           reply,
           speechText: cleanForSpeech(reply),
           actionData: {
@@ -1533,12 +1589,6 @@ export const handleVoiceAssistantMessage = async (req, res) => {
           speechText: cleanForSpeech(helpReply),
           pendingAction: null,
           actionData: nav ? { navigation: nav } : null,
-=======
-          reply: supMsg,
-          speechText: cleanForSpeech(supMsg),
-          detectedLanguage: lang,
-          actionData: { navigation: { label: "Support Center", path: "/support" } },
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
         });
       }
 
@@ -1801,7 +1851,6 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
       });
     }
 
-<<<<<<< HEAD
     case "CONFIRM_DELETE_PRODUCT": {
       await Product.findOneAndDelete({
         _id: data.productId,
@@ -1986,8 +2035,6 @@ async function executeConfirmedAction(pendingAction, artisanUser, shop, language
       });
     }
 
-=======
->>>>>>> 6452efc9454e86d710347595625a1ab9335b5638
     default:
       return res.status(200).json({
         success: true,
