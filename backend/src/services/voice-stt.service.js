@@ -1,4 +1,5 @@
 import fs from "fs";
+import path from "path";
 
 /**
  * Transcribe spoken audio file using Groq Whisper (whisper-large-v3)
@@ -15,8 +16,18 @@ export async function transcribeAudioFile(filePath, language = "") {
   }
 
   const formData = new FormData();
-  const fileBlob = new Blob([fs.readFileSync(filePath)]);
-  formData.append("file", fileBlob, "audio.wav");
+  const extension = path.extname(filePath).toLowerCase() || ".wav";
+  const mimeTypeByExtension = {
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+    ".webm": "audio/webm",
+  };
+  const fileBlob = new Blob([fs.readFileSync(filePath)], {
+    type: mimeTypeByExtension[extension] || "application/octet-stream",
+  });
+  formData.append("file", fileBlob, `audio${extension}`);
   formData.append("model", "whisper-large-v3");
 
   if (language && ["pa", "hi", "en"].includes(language)) {

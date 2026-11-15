@@ -5,6 +5,7 @@ import {
   getVoiceSummaryApi,
   processVoiceAnswerApi,
   registerArtisanVoiceApi,
+  transcribeVoiceAudioApi,
 } from '../services/voice-api'
 
 const LANGUAGE_LOCALES = {
@@ -39,6 +40,13 @@ export function useVoiceRegistration({ onRegistered } = {}) {
   const [isInitializing, setIsInitializing] = useState(true)
 
   const recognitionRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const mediaStreamRef = useRef(null)
+  const recorderAudioContextRef = useRef(null)
+  const recorderMonitorTimerRef = useRef(null)
+  const recorderMaxTimerRef = useRef(null)
+  const recordingChunksRef = useRef([])
+  const recordingRequestRef = useRef(0)
   const synthRef = useRef(typeof window !== 'undefined' ? window.speechSynthesis : null)
   const audioRef = useRef(null)
   const audioUrlRef = useRef('')
@@ -90,6 +98,25 @@ export function useVoiceRegistration({ onRegistered } = {}) {
       }
       isListeningRef.current = false
     }
+    recordingRequestRef.current += 1
+    window.clearTimeout(recorderMonitorTimerRef.current)
+    window.clearTimeout(recorderMaxTimerRef.current)
+    recorderMonitorTimerRef.current = null
+    recorderMaxTimerRef.current = null
+    if (recorderAudioContextRef.current?.state !== 'closed') {
+      recorderAudioContextRef.current?.close()
+    }
+    recorderAudioContextRef.current = null
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.onstop = null
+      if (mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      mediaRecorderRef.current = null
+    }
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
+    mediaStreamRef.current = null
+    recordingChunksRef.current = []
   }, [])
 
   // Text-to-Speech speaking function with mouth movement synchronization
@@ -203,6 +230,170 @@ export function useVoiceRegistration({ onRegistered } = {}) {
       setMicError('')
       setLiveTranscript('')
 
+      if (languageRef.current === 'pa') {
+        if (
+          !navigator.mediaDevices?.getUserMedia ||
+          typeof window.MediaRecorder === 'undefined'
+        ) {
+          setMicError('ਤੁਹਾਡਾ ਬ੍ਰਾਊਜ਼ਰ ਪੰਜਾਬੀ ਆਵਾਜ਼ ਰਿਕਾਰਡ ਨਹੀਂ ਕਰ ਸਕਦਾ। ਮਾਈਕ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ ਜਾਂ ਹੇਠਾਂ ਲਿਖੋ।')
+          setRobotState('idle')
+          return
+        }
+
+        const requestId = ++recordingRequestRef.current
+        let stream
+        const stopRecordingMonitor = () => {
+          window.clearTimeout(recorderMonitorTimerRef.current)
+          window.clearTimeout(recorderMaxTimerRef.current)
+          recorderMonitorTimerRef.current = null
+          recorderMaxTimerRef.current = null
+          if (recorderAudioContextRef.current?.state !== 'closed') {
+            recorderAudioContextRef.current?.close()
+          }
+          recorderAudioContextRef.current = null
+        }
+
+        navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((audioStream) => {
+            stream = audioStream
+            if (recordingRequestRef.current !== requestId) {
+              stream.getTracks().forEach((track) => track.stop())
+              return
+            }
+
+            const mimeType = [
+              'audio/webm;codecs=opus',
+              'audio/webm',
+              'audio/mp4',
+            ].find((type) => window.MediaRecorder.isTypeSupported?.(type))
+            const recorder = mimeType
+              ? new window.MediaRecorder(stream, { mimeType })
+              : new window.MediaRecorder(stream)
+            mediaStreamRef.current = stream
+            mediaRecorderRef.current = recorder
+            recordingChunksRef.current = []
+
+            recorder.ondataavailable = (event) => {
+              if (event.data.size) recordingChunksRef.current.push(event.data)
+            }
+            recorder.onstop = async () => {
+              isListeningRef.current = false
+              stopRecordingMonitor()
+              const audio = new Blob(recordingChunksRef.current, {
+                type: recorder.mimeType || 'audio/webm',
+              })
+              recordingChunksRef.current = []
+              stream.getTracks().forEach((track) => track.stop())
+              if (mediaStreamRef.current === stream) mediaStreamRef.current = null
+              if (mediaRecorderRef.current === recorder) mediaRecorderRef.current = null
+              if (!audio.size) {
+                setMicError('ਆਵਾਜ਼ ਨਹੀਂ ਮਿਲੀ ਜੀ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਬੋਲੋ।')
+                setRobotState('idle')
+                return
+              }
+
+              setRobotState('processing')
+              try {
+                const result = await transcribeVoiceAudioApi(audio, 'pa')
+                const transcript = result?.text?.trim()
+                if (!transcript) {
+                  setMicError('ਆਵਾਜ਼ ਸਮਝ ਨਹੀਂ ਆਈ ਜੀ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਬੋਲੋ।')
+                  setRobotState('idle')
+                  return
+                }
+                setLiveTranscript(transcript)
+                if (customOnResult) customOnResult(transcript)
+                else handleTranscriptReceived(transcript)
+              } catch (error) {
+                console.error('Punjabi registration transcription failed:', error)
+                setMicError(error.message || 'ਪੰਜਾਬੀ ਆਵਾਜ਼ ਸਮਝਣ ਵਿੱਚ ਸਮੱਸਿਆ ਆਈ।')
+                setRobotState('idle')
+              }
+            }
+
+            recorder.onerror = (event) => {
+              console.error('Punjabi registration recording failed:', event.error)
+              isListeningRef.current = false
+              stopRecordingMonitor()
+              stream.getTracks().forEach((track) => track.stop())
+              if (mediaStreamRef.current === stream) mediaStreamRef.current = null
+              if (mediaRecorderRef.current === recorder) mediaRecorderRef.current = null
+              setMicError('ਮਾਈਕ੍ਰੋਫੋਨ ਤੋਂ ਆਵਾਜ਼ ਰਿਕਾਰਡ ਨਹੀਂ ਹੋ ਸਕੀ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।')
+              setRobotState('idle')
+            }
+
+            recorder.start()
+            isListeningRef.current = true
+            setRobotState('listening')
+
+            const AudioContextConstructor =
+              window.AudioContext || window.webkitAudioContext
+            if (AudioContextConstructor) {
+              try {
+                const audioContext = new AudioContextConstructor()
+                const analyser = audioContext.createAnalyser()
+                analyser.fftSize = 512
+                audioContext.createMediaStreamSource(stream).connect(analyser)
+                recorderAudioContextRef.current = audioContext
+                const samples = new Uint8Array(analyser.fftSize)
+                let heardSpeech = false
+                let silenceStartedAt = 0
+                const monitorAudio = () => {
+                  if (
+                    mediaRecorderRef.current !== recorder ||
+                    recorder.state !== 'recording'
+                  ) {
+                    return
+                  }
+                  analyser.getByteTimeDomainData(samples)
+                  const amplitude =
+                    Math.sqrt(
+                      samples.reduce(
+                        (sum, sample) => sum + (sample - 128) ** 2,
+                        0
+                      ) / samples.length
+                    ) / 128
+                  const now = Date.now()
+                  if (amplitude > 0.02) {
+                    heardSpeech = true
+                    silenceStartedAt = 0
+                  } else if (heardSpeech) {
+                    if (!silenceStartedAt) silenceStartedAt = now
+                    if (now - silenceStartedAt >= 1800) {
+                      recorder.stop()
+                      return
+                    }
+                  }
+                  recorderMonitorTimerRef.current = window.setTimeout(
+                    monitorAudio,
+                    150
+                  )
+                }
+                monitorAudio()
+              } catch (error) {
+                console.warn('Punjabi silence detection unavailable:', error)
+              }
+            }
+
+            recorderMaxTimerRef.current = window.setTimeout(() => {
+              if (recorder.state === 'recording') recorder.stop()
+            }, 20000)
+          })
+          .catch((error) => {
+            if (recordingRequestRef.current !== requestId) return
+            stopRecordingMonitor()
+            console.error('Could not access microphone for Punjabi registration:', error)
+            setMicError(
+              error.name === 'NotAllowedError'
+                ? 'ਕਿਰਪਾ ਕਰਕੇ ਬ੍ਰਾਊਜ਼ਰ ਸੈਟਿੰਗਜ਼ ਵਿੱਚ ਮਾਈਕ੍ਰੋਫੋਨ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ ਜੀ।'
+                : error.message || 'ਮਾਈਕ੍ਰੋਫੋਨ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋ ਸਕਿਆ।'
+            )
+            setRobotState('idle')
+          })
+        return
+      }
+
       const SpeechRecognition =
         window.SpeechRecognition || window.webkitSpeechRecognition
 
@@ -291,6 +482,22 @@ export function useVoiceRegistration({ onRegistered } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stopAllAudio]
   )
+
+  const stopListening = useCallback(() => {
+    const recorder = mediaRecorderRef.current
+    if (recorder?.state === 'recording') {
+      recorder.stop()
+      return
+    }
+
+    if (recognitionRef.current && isListeningRef.current) {
+      try {
+        recognitionRef.current.stop()
+      } catch (error) {
+        console.warn('Could not stop speech recognition:', error)
+      }
+    }
+  }, [])
 
   // Handle incoming final transcript
   const handleTranscriptReceived = useCallback(
@@ -620,6 +827,7 @@ export function useVoiceRegistration({ onRegistered } = {}) {
     isInitializing,
     startAssistant,
     startListening,
+    stopListening,
     stopAllAudio,
     replayCurrentQuestion: () => {
       if (currentStepIndex >= 0 && currentStepIndex < questions.length) {

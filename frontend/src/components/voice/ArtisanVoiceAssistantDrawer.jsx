@@ -33,6 +33,7 @@ import VoiceWaveform from './VoiceWaveform'
 import {
   sendVoiceAssistantMessageApi,
   synthesizeVoiceAudioApi,
+  transcribeVoiceAudioApi,
 } from '../../services/voice-api'
 import {
   getArtisanShopApi,
@@ -243,6 +244,13 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
 
   const chatBottomRef = useRef(null)
   const recognitionRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const mediaStreamRef = useRef(null)
+  const recorderAudioContextRef = useRef(null)
+  const recorderMonitorTimerRef = useRef(null)
+  const recorderMaxTimerRef = useRef(null)
+  const recordingChunksRef = useRef([])
+  const recordingRequestRef = useRef(0)
   const isListeningRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const fileInputRef = useRef(null)
@@ -311,6 +319,26 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
       } catch (_) {}
       isListeningRef.current = false
     }
+    recordingRequestRef.current += 1
+    window.clearTimeout(recorderMonitorTimerRef.current)
+    window.clearTimeout(recorderMaxTimerRef.current)
+    recorderMonitorTimerRef.current = null
+    recorderMaxTimerRef.current = null
+    if (recorderAudioContextRef.current?.state !== 'closed') {
+      recorderAudioContextRef.current?.close()
+    }
+    recorderAudioContextRef.current = null
+    if (mediaRecorderRef.current) {
+      isListeningRef.current = false
+      mediaRecorderRef.current.onstop = null
+      if (mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      mediaRecorderRef.current = null
+    }
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
+    mediaStreamRef.current = null
+    recordingChunksRef.current = []
     if (robotState === 'speaking' || robotState === 'listening') {
       setRobotState('idle')
     }
@@ -442,7 +470,20 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
   useEffect(
     () => () => {
       speechRequestRef.current += 1
+      recordingRequestRef.current += 1
       releaseAudio()
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.onstop = null
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop()
+        }
+      }
+      window.clearTimeout(recorderMonitorTimerRef.current)
+      window.clearTimeout(recorderMaxTimerRef.current)
+      if (recorderAudioContextRef.current?.state !== 'closed') {
+        recorderAudioContextRef.current?.close()
+      }
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
     },
     [releaseAudio]
   )
@@ -1014,7 +1055,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
 
   // Handle general message sending (AMA mode or interruption in guided mode)
   const handleSendMessage = useCallback(
-    async (textToSend) => {
+    async (textToSend, preferredInputLanguage = null) => {
       const msg = (textToSend || inputMessage).trim()
       if (!msg) return
 
@@ -1030,7 +1071,8 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
 
       setRobotState('processing')
 
-      const clientDetected = detectClientLanguage(msg, language)
+      const clientDetected =
+        preferredInputLanguage || detectClientLanguage(msg, language)
       if (clientDetected !== language) {
         setLanguage(clientDetected)
       }
@@ -1056,6 +1098,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
           conversationHistory: historyPayload,
           pendingAction,
           language: clientDetected,
+          preserveLanguage: preferredInputLanguage === 'pa',
         })
 
         if (!res?.success) {
@@ -1130,89 +1173,274 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
     ]
   )
 
-  // Start Speech-to-Text Recognition
+  const startBrowserRecognition = useCallback(
+    (targetLanguage) => {
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition
+
+      if (!SpeechRecognition) {
+        setMicError(
+          targetLanguage === 'pa'
+            ? 'ਬ੍ਰਾਉਜ਼ਰ ਸਪੀਚ ਰਿਕੋਗਨੀਸ਼ਨ ਦਾ ਸਮਰਥਨ ਨਹੀਂ ਕਰਦਾ। ਕਿਰਪਾ ਕਰਕੇ Chrome ਵਰਤੋ ਜਾਂ ਹੇਠਾਂ ਲਿਖੋ।'
+            : targetLanguage === 'hi'
+              ? 'ब्राउज़र स्पीच रिकॉग्निशन का समर्थन नहीं करता। कृपया Chrome का उपयोग करें या नीचे लिखें।'
+              : 'Your browser does not support speech recognition. Please use Chrome or type below.'
+        )
+        return false
+      }
+
+      try {
+        const recognition = new SpeechRecognition()
+        recognitionRef.current = recognition
+        recognition.lang = LANGUAGE_LOCALES[targetLanguage] || 'en-IN'
+        recognition.continuous = false
+        recognition.interimResults = true
+
+        recognition.onstart = () => {
+          isListeningRef.current = true
+          setRobotState('listening')
+        }
+
+        recognition.onresult = (event) => {
+          let interim = ''
+          let final = ''
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript
+            if (event.results[i].isFinal) final += transcript
+            else interim += transcript
+          }
+
+          setLiveTranscript((final || interim).trim())
+          if (final.trim()) {
+            recognition.stop()
+            handleSendMessage(
+              final.trim(),
+              targetLanguage === 'pa' ? 'pa' : null
+            )
+          }
+        }
+
+        recognition.onerror = (event) => {
+          console.warn('Speech recognition error:', event.error)
+          isListeningRef.current = false
+          if (event.error === 'not-allowed') {
+            setMicError(
+              targetLanguage === 'pa'
+                ? 'ਕਿਰਪਾ ਕਰਕੇ ਮਾਈਕ੍ਰੋਫੋਨ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ ਜੀ।'
+                : targetLanguage === 'hi'
+                  ? 'कृपया माइक्रोफ़ोन की अनुमति दें जी।'
+                  : 'Please allow microphone access in your browser settings.'
+            )
+          } else if (event.error !== 'aborted') {
+            setMicError(
+              targetLanguage === 'pa'
+                ? 'ਆਵਾਜ਼ ਪਛਾਣਨ ਵਿੱਚ ਸਮੱਸਿਆ ਆਈ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ ਜਾਂ ਹੇਠਾਂ ਲਿਖੋ।'
+                : targetLanguage === 'hi'
+                  ? 'आवाज़ पहचानने में समस्या आई। कृपया फिर कोशिश करें या नीचे लिखें।'
+                  : 'Speech recognition failed. Please try again or type below.'
+            )
+          }
+          setRobotState('idle')
+        }
+
+        recognition.onend = () => {
+          isListeningRef.current = false
+          setRobotState((current) => current === 'listening' ? 'idle' : current)
+        }
+
+        recognition.start()
+        return true
+      } catch (error) {
+        console.error('Failed to start speech recognition:', error)
+        setMicError(
+          targetLanguage === 'pa'
+            ? 'ਆਵਾਜ਼ ਪਛਾਣ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋ ਸਕੀ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ ਜਾਂ ਹੇਠਾਂ ਲਿਖੋ।'
+            : error.message
+        )
+        setRobotState('idle')
+        return false
+      }
+    },
+    [handleSendMessage]
+  )
+
+  const startPunjabiRecording = useCallback(async () => {
+    if (
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof window.MediaRecorder === 'undefined'
+    ) {
+      startBrowserRecognition('pa')
+      return
+    }
+
+    const requestId = ++recordingRequestRef.current
+    let stream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (recordingRequestRef.current !== requestId) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(
+        (type) => window.MediaRecorder.isTypeSupported?.(type)
+      )
+      const recorder = mimeType
+        ? new window.MediaRecorder(stream, { mimeType })
+        : new window.MediaRecorder(stream)
+      mediaStreamRef.current = stream
+      mediaRecorderRef.current = recorder
+      recordingChunksRef.current = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) recordingChunksRef.current.push(event.data)
+      }
+      recorder.onstop = async () => {
+        isListeningRef.current = false
+        window.clearTimeout(recorderMonitorTimerRef.current)
+        window.clearTimeout(recorderMaxTimerRef.current)
+        recorderMonitorTimerRef.current = null
+        recorderMaxTimerRef.current = null
+        if (recorderAudioContextRef.current?.state !== 'closed') {
+          recorderAudioContextRef.current?.close()
+        }
+        recorderAudioContextRef.current = null
+        const audio = new Blob(recordingChunksRef.current, {
+          type: recorder.mimeType || 'audio/webm',
+        })
+        recordingChunksRef.current = []
+        stream.getTracks().forEach((track) => track.stop())
+        if (mediaStreamRef.current === stream) mediaStreamRef.current = null
+        if (mediaRecorderRef.current === recorder) mediaRecorderRef.current = null
+        if (!audio.size) {
+          setRobotState('idle')
+          return
+        }
+
+        setRobotState('processing')
+        try {
+          const result = await transcribeVoiceAudioApi(audio, 'pa')
+          const transcript = result?.text?.trim()
+          if (!transcript) {
+            setRobotState('idle')
+            console.warn('Punjabi transcription returned no text; trying browser recognition.')
+            startBrowserRecognition('pa')
+            return
+          }
+          setLiveTranscript(transcript)
+          handleSendMessage(transcript, 'pa')
+        } catch (error) {
+          console.error('Punjabi speech transcription failed:', error)
+          setRobotState('idle')
+          startBrowserRecognition('pa')
+        }
+      }
+
+      recorder.onerror = (event) => {
+        console.error('Punjabi audio recording failed:', event.error)
+        isListeningRef.current = false
+        window.clearTimeout(recorderMonitorTimerRef.current)
+        window.clearTimeout(recorderMaxTimerRef.current)
+        recorderMonitorTimerRef.current = null
+        recorderMaxTimerRef.current = null
+        if (recorderAudioContextRef.current?.state !== 'closed') {
+          recorderAudioContextRef.current?.close()
+        }
+        recorderAudioContextRef.current = null
+        stream.getTracks().forEach((track) => track.stop())
+        if (mediaStreamRef.current === stream) mediaStreamRef.current = null
+        if (mediaRecorderRef.current === recorder) mediaRecorderRef.current = null
+        setRobotState('idle')
+        startBrowserRecognition('pa')
+      }
+
+      recorder.start()
+      isListeningRef.current = true
+      setRobotState('listening')
+
+      const AudioContextConstructor = window.AudioContext || window.webkitAudioContext
+      if (AudioContextConstructor) {
+        try {
+          const audioContext = new AudioContextConstructor()
+          const analyser = audioContext.createAnalyser()
+          analyser.fftSize = 512
+          audioContext.createMediaStreamSource(stream).connect(analyser)
+          recorderAudioContextRef.current = audioContext
+          const samples = new Uint8Array(analyser.fftSize)
+          let heardSpeech = false
+          let silenceStartedAt = 0
+          const monitorAudio = () => {
+            if (mediaRecorderRef.current !== recorder || recorder.state !== 'recording') {
+              return
+            }
+            analyser.getByteTimeDomainData(samples)
+            const amplitude = Math.sqrt(
+              samples.reduce((sum, sample) => sum + (sample - 128) ** 2, 0) /
+                samples.length
+            ) / 128
+            const now = Date.now()
+            if (amplitude > 0.02) {
+              heardSpeech = true
+              silenceStartedAt = 0
+            } else if (heardSpeech) {
+              if (!silenceStartedAt) silenceStartedAt = now
+              if (now - silenceStartedAt >= 1800) {
+                recorder.stop()
+                return
+              }
+            }
+            recorderMonitorTimerRef.current = window.setTimeout(monitorAudio, 150)
+          }
+          monitorAudio()
+        } catch (error) {
+          console.warn('Punjabi silence detection unavailable:', error)
+        }
+      }
+      recorderMaxTimerRef.current = window.setTimeout(() => {
+        if (recorder.state === 'recording') recorder.stop()
+      }, 20000)
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop())
+      if (recordingRequestRef.current !== requestId) return
+      window.clearTimeout(recorderMonitorTimerRef.current)
+      window.clearTimeout(recorderMaxTimerRef.current)
+      if (recorderAudioContextRef.current?.state !== 'closed') {
+        recorderAudioContextRef.current?.close()
+      }
+      recorderAudioContextRef.current = null
+      mediaStreamRef.current = null
+      mediaRecorderRef.current = null
+      recordingChunksRef.current = []
+      console.error('Could not start Punjabi audio recording:', error)
+      startBrowserRecognition('pa')
+    }
+  }, [handleSendMessage, startBrowserRecognition])
+
+  const stopListening = useCallback(() => {
+    const recorder = mediaRecorderRef.current
+    if (recorder?.state === 'recording') {
+      isListeningRef.current = false
+      setRobotState('processing')
+      recorder.stop()
+      return
+    }
+    stopAudio()
+  }, [stopAudio])
+
+  // Prefer server transcription for Punjabi and fall back to browser recognition.
   const startListening = useCallback(() => {
     stopAudio()
     setMicError('')
     setLiveTranscript('')
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition
-
-    if (!SpeechRecognition) {
-      setMicError(
-        language === 'pa'
-          ? 'ਬ੍ਰਾਉਜ਼ਰ ਸਪੀਚ ਰਿਕੋਗਨੀਸ਼ਨ ਦਾ ਸਮਰਥਨ ਨਹੀਂ ਕਰਦਾ। ਕਿਰਪਾ ਕਰਕੇ Google Chrome ਵਰਤੋ ਜਾਂ ਹੇਠਾਂ ਟਾਈਪ ਕਰੋ।'
-          : language === 'hi'
-          ? 'ब्राउज़र स्पीच रिकॉग्निशन का समर्थन नहीं करता। कृपया गूगल क्रोम का उपयोग करें या नीचे टाइप करें।'
-          : 'Your browser does not support Speech Recognition. Please use Chrome or type below.'
-      )
+    if (language === 'pa') {
+      startPunjabiRecording()
       return
     }
 
-    try {
-      const recognition = new SpeechRecognition()
-      recognitionRef.current = recognition
-      recognition.lang = LANGUAGE_LOCALES[language] || 'pa-IN'
-      recognition.continuous = false
-      recognition.interimResults = true
-
-      recognition.onstart = () => {
-        isListeningRef.current = true
-        setRobotState('listening')
-      }
-
-      recognition.onresult = (event) => {
-        let interim = ''
-        let final = ''
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const transcript = event.results[i][0].transcript
-          if (event.results[i].isFinal) {
-            final += transcript
-          } else {
-            interim += transcript
-          }
-        }
-
-        const currentText = (final || interim).trim()
-        setLiveTranscript(currentText)
-
-        if (final.trim()) {
-          recognition.stop()
-          handleSendMessage(final.trim())
-        }
-      }
-
-      recognition.onerror = (event) => {
-        console.warn('Speech recognition error:', event.error)
-        isListeningRef.current = false
-        if (event.error === 'not-allowed') {
-          setMicError(
-            language === 'pa'
-              ? 'ਕਿਰਪਾ ਕਰਕੇ ਮਾਈਕ੍ਰੋਫੋਨ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ ਜੀ।'
-              : language === 'hi'
-              ? 'कृपया माइक्रोफ़ोन की अनुमति दें जी।'
-              : 'Please allow microphone access in your browser settings.'
-          )
-        }
-        setRobotState('idle')
-      }
-
-      recognition.onend = () => {
-        isListeningRef.current = false
-        if (robotState === 'listening') {
-          setRobotState('idle')
-        }
-      }
-
-      recognition.start()
-    } catch (err) {
-      console.error('Failed to start speech recognition:', err)
-      setMicError(err.message)
-      setRobotState('idle')
-    }
-  }, [language, robotState, stopAudio, handleSendMessage])
+    startBrowserRecognition(language)
+  }, [language, startBrowserRecognition, startPunjabiRecording, stopAudio])
 
   // Handle Action Navigation
   const handleNavigationAction = useCallback(
@@ -1455,6 +1683,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
             className="cursor-pointer transition-transform hover:scale-102"
             onClick={() => {
               if (robotState === 'idle') startListening()
+              else if (robotState === 'listening') stopListening()
               else stopAudio()
             }}
             title={robotState === 'idle' ? 'Click mascot to speak' : 'Click to stop'}
@@ -1951,7 +2180,13 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
                 <span className="absolute h-18 w-18 rounded-full bg-emerald-500/25 animate-ping" />
               )}
               <button
-                aria-label={robotState === 'listening' ? 'Listening...' : 'Tap to speak'}
+                aria-label={
+                  robotState === 'listening'
+                    ? language === 'pa'
+                      ? 'Listening; tap to send'
+                      : 'Listening...'
+                    : 'Tap to speak'
+                }
                 className={`relative flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all transform active:scale-95 cursor-pointer ${
                   robotState === 'listening'
                     ? 'bg-emerald-500 text-white ring-4 ring-emerald-300 animate-pulse'
@@ -1961,7 +2196,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
                 }`}
                 onClick={() => {
                   if (robotState === 'listening') {
-                    stopAudio()
+                    stopListening()
                   } else {
                     startListening()
                   }
@@ -1993,7 +2228,7 @@ const ArtisanVoiceAssistantDrawer = ({ isOpen, onClose, user: propUser, initialQ
           <p className="text-center text-[10px] font-semibold text-text-muted">
             {robotState === 'listening'
               ? language === 'pa'
-                ? 'ਬੋਲੋ ਜੀ... ਮੈਂ ਸੁਣ ਰਿਹਾ ਹਾਂ'
+                ? "ਬੋਲੋ ਜੀ... ਰੁਕਣ 'ਤੇ ਆਵਾਜ਼ ਆਪਣੇ ਆਪ ਭੇਜੀ ਜਾਵੇਗੀ"
                 : language === 'hi'
                 ? 'बोलिए जी... मैं सुन रहा हूँ'
                 : 'Listening... speak your answer now'
