@@ -36,14 +36,12 @@ export const getMarketplaceProducts = async (req, res) => {
       .populate("shop", "name location")
       .sort({ createdAt: -1 });
 
-    // Strict Rule: Only products from verified, active, non-suspended artisans can be sold in the marketplace
+    // Only products from active, non-suspended artisans are sold in the marketplace
     const validProducts = products.filter((product) => {
       const artisan = product.artisan;
       if (!artisan) return false;
       if (artisan.isActive === false || artisan.accountStatus === "Deactivated") return false;
       if (artisan.accountStatus === "Suspended") return false;
-      const isVerified = artisan.verificationStatus === "Verified" || artisan.isVerified === true;
-      if (!isVerified) return false;
       return true;
     });
 
@@ -100,15 +98,6 @@ export const getMarketplaceProductById = async (req, res) => {
         success: false,
         isSuspended: true,
         message: "Orders for this product are temporarily paused as this artisan's account is currently under review.",
-      });
-    }
-
-    const isVerified = product.artisan.verificationStatus === "Verified" || product.artisan.isVerified === true;
-    if (!isVerified) {
-      return res.status(403).json({
-        success: false,
-        requiresVerification: true,
-        message: "This product is currently not available for purchase because the artisan has not completed identity verification.",
       });
     }
 
@@ -217,14 +206,6 @@ export const createMarketplaceOrder = async (req, res) => {
         return res.status(403).json({
           success: false,
           message: `Orders for "${product.title}" are temporarily paused as this artisan's account is currently under review.`,
-        });
-      }
-      const isArtisanVerified = product.artisan.verificationStatus === "Verified" || product.artisan.isVerified === true;
-      if (!isArtisanVerified) {
-        return res.status(403).json({
-          success: false,
-          requiresVerification: true,
-          message: `"${product.title}" cannot be ordered because the artisan's identity verification is not complete. Artisans must be verified to sell products.`,
         });
       }
       if (product.stock < quantity) {

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react'
 
-const FeaturedCraftCarousel = ({ products, onSelectCategory }) => {
+const FeaturedCraftCarousel = ({ products = [], onSelectCategory }) => {
   const [activeSlide, setActiveSlide] = useState(0)
   const [unavailableImages, setUnavailableImages] = useState({})
-  const activeProduct = products[activeSlide]
+  const activeProduct = products && products.length > 0 ? products[activeSlide % products.length] : null
 
   useEffect(() => {
+    if (!products || products.length <= 1) return undefined
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
 
     const timer = window.setInterval(() => {
@@ -14,7 +15,11 @@ const FeaturedCraftCarousel = ({ products, onSelectCategory }) => {
     }, 6000)
 
     return () => window.clearInterval(timer)
-  }, [products.length])
+  }, [products?.length])
+
+  if (!Array.isArray(products) || products.length === 0 || !activeProduct) {
+    return null
+  }
 
   const showPrevious = () => {
     setActiveSlide((current) => (current - 1 + products.length) % products.length)
@@ -36,7 +41,7 @@ const FeaturedCraftCarousel = ({ products, onSelectCategory }) => {
             className={`absolute inset-0 transition-opacity duration-1000 ${
               activeSlide === index ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'
             }`}
-            key={product.name}
+            key={product.id || product._id || product.name || index}
           >
             {!unavailableImages[product.image] && (
               <img
@@ -107,7 +112,7 @@ const FeaturedCraftCarousel = ({ products, onSelectCategory }) => {
               className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
                 activeSlide === index ? 'w-8 bg-white' : 'w-2.5 bg-white/40 hover:bg-white/70'
               }`}
-              key={product.name}
+              key={product.id || product._id || product.name || index}
               onClick={() => setActiveSlide(index)}
               type="button"
             />

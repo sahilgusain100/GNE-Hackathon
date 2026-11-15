@@ -8,22 +8,6 @@ import MarketplaceProducts from '../components/marketplace/MarketplaceProducts'
 import { useCart } from '../hooks/useCart'
 import { useAuthDialog } from '../hooks/useAuthDialog'
 import { getMarketplaceProductsApi } from '../services/marketplace-api'
-import content from '../data/local-storage.json'
-
-const { products: sampleProducts, categories: sampleCategories } = content.marketplace
-const featuredProducts = sampleProducts.slice(0, 3).map((product, index) => ({
-  ...product,
-  image: [
-    '/images/marketplace-embroidered-textile.jpg',
-    '/images/marketplace-crochet-flower.jpg',
-    '/images/marketplace-handwoven-sweater.jpg',
-  ][index],
-  imageAlt: [
-    'Colorful embroidered fabric with detailed floral patterns',
-    'Hand-crocheted flower square in cream, green, and yellow yarn',
-    'Artisan wearing a colorful handwoven sweater',
-  ][index],
-}))
 
 const Marketplace = () => {
   const { currentUser, openAuth } = useAuthDialog()
@@ -31,37 +15,50 @@ const Marketplace = () => {
   const [activeCategory, setActiveCategory] = useState('All crafts')
   const [sortOrder, setSortOrder] = useState('featured')
   const [backendProducts, setBackendProducts] = useState([])
+  const [loading, setLoading] = useState(true)
   const { addToCart, itemCount, items } = useCart()
 
-  // Fetch backend marketplace products on mount
+  // Fetch real artisan products from backend on mount
   useEffect(() => {
+    setLoading(true)
     getMarketplaceProductsApi()
       .then((res) => {
-        if (res?.success && Array.isArray(res.products) && res.products.length > 0) {
+        if (res?.success && Array.isArray(res.products)) {
           setBackendProducts(res.products)
         }
       })
       .catch((err) => {
         console.warn('Backend marketplace fetch error:', err.message)
       })
+      .finally(() => {
+        setLoading(false)
+      })
   }, [])
 
-  const products = useMemo(
-    () => (backendProducts.length > 0 ? backendProducts : sampleProducts),
-    [backendProducts],
-  )
-  const categories = useMemo(
-    () => [
-      ...sampleCategories,
-      ...new Set(
+  // Only show original data given by artisans
+  const products = backendProducts
+
+  // Dynamic categories derived solely from registered artisan products
+  const categories = useMemo(() => {
+    const uniqueCategories = Array.from(
+      new Set(
         backendProducts
           .map((product) => product.category)
-          .filter(Boolean)
-          .filter((category) => !sampleCategories.includes(category)),
+          .filter(Boolean),
       ),
-    ],
-    [backendProducts],
-  )
+    )
+    return ['All crafts', ...uniqueCategories]
+  }, [backendProducts])
+
+  // Featured crafts carousel built directly from real artisan products
+  const featuredProducts = useMemo(() => {
+    if (!backendProducts || backendProducts.length === 0) return []
+    return backendProducts.slice(0, 3).map((product) => ({
+      ...product,
+      image: product.image || (product.images && product.images[0]) || '',
+      imageAlt: product.name || product.title || 'Artisan handcrafted work',
+    }))
+  }, [backendProducts])
 
   const visibleProducts = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -70,7 +67,8 @@ const Marketplace = () => {
         activeCategory === 'All crafts' || product.category === activeCategory
       const matchesSearch =
         !query ||
-        [product.name, product.category, product.artisan, product.location]
+        [product.name, product.title, product.category, product.artisan, product.location]
+          .filter(Boolean)
           .join(' ')
           .toLowerCase()
           .includes(query)
@@ -79,10 +77,10 @@ const Marketplace = () => {
     })
 
     if (sortOrder === 'price-low') {
-      return filtered.sort((first, second) => first.price - second.price)
+      return [...filtered].sort((first, second) => first.price - second.price)
     }
     if (sortOrder === 'price-high') {
-      return filtered.sort((first, second) => second.price - first.price)
+      return [...filtered].sort((first, second) => second.price - first.price)
     }
     return filtered
   }, [activeCategory, products, search, sortOrder])
@@ -162,7 +160,7 @@ const Marketplace = () => {
       showSearch
     >
       <main>
-        {!search.trim() && (
+        {!search.trim() && featuredProducts.length > 0 && (
           <FeaturedCraftCarousel
             onSelectCategory={setActiveCategory}
             products={featuredProducts}

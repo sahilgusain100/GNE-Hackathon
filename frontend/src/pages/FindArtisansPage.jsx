@@ -3,12 +3,9 @@ import { ArrowRight, MapPin, Search, Sparkles, Store, UserCheck, UsersRound } fr
 import { Link } from 'react-router-dom'
 import Footer from '../components/layout/Footer'
 import Navbar from '../components/layout/Navbar'
-import content from '../data/local-storage.json'
 import { getProductSlug } from '../utils/marketplace'
 import { getMarketplaceProductsApi } from '../services/marketplace-api'
 import { getArtisansApi } from '../services/auth-api'
-
-const sampleProducts = content.marketplace.products
 
 function buildArtisans(products, registeredArtisans = []) {
   const artisans = new Map()
@@ -69,10 +66,7 @@ const FindArtisansPage = () => {
       .catch((err) => console.warn('Artisans fetch error:', err.message))
   }, [])
 
-  const allProducts = useMemo(
-    () => (backendProducts.length > 0 ? backendProducts : sampleProducts),
-    [backendProducts],
-  )
+  const allProducts = backendProducts
   const artisans = useMemo(
     () => buildArtisans(allProducts, backendArtisans),
     [allProducts, backendArtisans],

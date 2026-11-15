@@ -24,7 +24,6 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import MarketplaceLayout from '../components/layout/MarketplaceLayout'
 import { useCart } from '../hooks/useCart'
 import { useAuthDialog } from '../hooks/useAuthDialog'
-import content from '../data/local-storage.json'
 import { getProductSlug } from '../utils/marketplace'
 import {
   getMarketplaceProductByIdApi,
@@ -33,7 +32,6 @@ import {
 import { getProductReviewsApi } from '../services/review-api'
 import ReportModal from '../components/support/ReportModal'
 
-const sampleProducts = content.marketplace.products
 const formatPrice = (price) => `₹${Number(price || 0).toLocaleString('en-IN')}`
 
 const ProductDetail = () => {
@@ -87,7 +85,6 @@ const ProductDetail = () => {
     () => [
       ...(singleProduct ? [singleProduct] : []),
       ...backendProducts,
-      ...sampleProducts,
     ],
     [singleProduct, backendProducts],
   )
