@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
+import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/auth.routes.js";
 import artisanRoutes from "./routes/artisan.routes.js";
 import expertRoutes from "./routes/expert.routes.js";
@@ -75,6 +76,25 @@ app.get("/api/health", (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+if (process.env.VERCEL) {
+  app.use(async (req, res, next) => {
+    if (!req.path.startsWith("/api/") || req.path === "/api/health") {
+      return next();
+    }
+
+    try {
+      await connectDB();
+      return next();
+    } catch (error) {
+      console.error("API request could not connect to MongoDB:", error.message);
+      return res.status(503).json({
+        success: false,
+        message: "The service is temporarily unavailable. Please try again.",
+      });
+    }
+  });
+}
 
 // Main API Routes
 app.use("/api/auth", authRoutes);
