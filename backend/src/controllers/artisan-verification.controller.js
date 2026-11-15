@@ -1,15 +1,13 @@
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { User } from "../models/user.model.js";
 import { Notification } from "../models/notification.model.js";
 import { resolveExistingAadhaarPath } from "./admin-verification.controller.js";
 
-const PRIVATE_AADHAAR_DIR = path.resolve("private_uploads/aadhaar");
-
-// Ensure secure private directory exists
-if (!fs.existsSync(PRIVATE_AADHAAR_DIR)) {
-  fs.mkdirSync(PRIVATE_AADHAAR_DIR, { recursive: true });
-}
+const PRIVATE_AADHAAR_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), "skillbridge-private-uploads", "aadhaar")
+  : path.resolve("private_uploads/aadhaar");
 
 /**
  * Validate Aadhaar image file
@@ -31,6 +29,8 @@ function validateImageFile(file) {
  * Move uploaded file from temp storage to private Aadhaar directory
  */
 function storePrivateAadhaarImage(file, side, userId) {
+  fs.mkdirSync(PRIVATE_AADHAAR_DIR, { recursive: true });
+
   const ext = path.extname(file.originalname) || ".jpg";
   const safeFilename = `aadhaar_${userId}_${side}_${Date.now()}${ext}`;
   const targetPath = path.join(PRIVATE_AADHAAR_DIR, safeFilename);

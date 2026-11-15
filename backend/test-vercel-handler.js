@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
 
 process.env.VERCEL = "1";
 process.env.MONGODB_URI = "";
 
-const { default: app } = await import("./src/index.js");
+const originalMkdirSync = fs.mkdirSync;
+const localAadhaarDir = path.resolve("private_uploads/aadhaar");
+fs.mkdirSync = function (directory, ...args) {
+  if (directory === localAadhaarDir) {
+    throw new Error("Vercel deployment files are read-only");
+  }
+  return originalMkdirSync.call(this, directory, ...args);
+};
+
+let app;
+try {
+  ({ default: app } = await import("./src/index.js"));
+} finally {
+  fs.mkdirSync = originalMkdirSync;
+}
+
 const server = http.createServer(app);
 
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
