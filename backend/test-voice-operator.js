@@ -438,7 +438,26 @@ async function runVoiceOperatorVerification() {
   await handleVoiceAssistantMessage(turn3Req, turn3Res);
   assert.equal(turn3Res.body.detectedLanguage, "hi", "Turn 3 must automatically switch to Hindi");
   assert.ok(turn3Res.body.reply.includes("आपका नाम") || turn3Res.body.reply.includes("हुनर"), "Must reply in Hindi");
-  console.log("✔ Test 4 PASSED: Seamless natural language switching across 3 turns verified.\n");
+
+  const preservedPaRes = createMockRes();
+  await handleVoiceAssistantMessage(
+    {
+      user: { ...usersDb.get(switchArtisanId.toString()) },
+      body: {
+        message: "मेरी प्रोफाइल दिखाओ",
+        language: "pa",
+        preserveLanguage: true,
+      },
+    },
+    preservedPaRes
+  );
+  assert.equal(
+    preservedPaRes.body.detectedLanguage,
+    "pa",
+    "Punjabi speech mode must stay Punjabi when recognition returns Devanagari text"
+  );
+  assert.match(preservedPaRes.body.reply, /[\u0A00-\u0A7F]/, "Punjabi speech mode must reply in Gurmukhi");
+  console.log("✔ Test 4 PASSED: Language switching and Punjabi speech mode verified.\n");
   passedCount++;
 
   // ----------------------------------------------------

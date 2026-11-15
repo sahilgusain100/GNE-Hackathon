@@ -92,6 +92,7 @@ export async function sendVoiceAssistantMessageApi({
   conversationHistory = [],
   pendingAction = null,
   language = 'pa',
+  preserveLanguage = false,
 }) {
   return await apiRequest('/voice/assistant', {
     method: 'POST',
@@ -100,6 +101,7 @@ export async function sendVoiceAssistantMessageApi({
       conversationHistory,
       pendingAction,
       language,
+      preserveLanguage,
     }),
   })
 }
@@ -159,7 +161,15 @@ export async function synthesizeVoiceAudioApi(text, language = 'pa') {
  */
 export async function transcribeVoiceAudioApi(audioBlob, language = '') {
   const formData = new FormData()
-  formData.append('audio', audioBlob, 'voice.wav')
+  const mimeType = audioBlob.type?.toLowerCase() || ''
+  const extension = mimeType.includes('webm')
+    ? 'webm'
+    : mimeType.includes('mp4')
+      ? 'mp4'
+      : mimeType.includes('ogg')
+        ? 'ogg'
+        : 'wav'
+  formData.append('audio', audioBlob, `voice.${extension}`)
   if (language) formData.append('language', language)
 
   let response

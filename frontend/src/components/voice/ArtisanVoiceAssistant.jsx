@@ -35,6 +35,7 @@ const ArtisanVoiceAssistant = ({ onRegistered, onSwitchToForm }) => {
     isInitializing,
     startAssistant,
     startListening,
+    stopListening,
     replayCurrentQuestion,
     skipCurrentQuestion,
     confirmAndRegister,
@@ -328,7 +329,9 @@ const ArtisanVoiceAssistant = ({ onRegistered, onSwitchToForm }) => {
           <button
             aria-label={
               robotState === 'listening'
-                ? 'Listening to your speech'
+                ? language === 'pa'
+                  ? 'Stop and send Punjabi speech'
+                  : 'Listening to your speech'
                 : 'Tap to speak to assistant'
             }
             className={`relative flex h-20 w-20 items-center justify-center rounded-full shadow-xl transition-all transform active:scale-95 focus-visible:outline-none focus-visible:ring-4 ${
@@ -340,7 +343,7 @@ const ArtisanVoiceAssistant = ({ onRegistered, onSwitchToForm }) => {
             }`}
             onClick={() => {
               if (robotState === 'listening') {
-                // Manually stop or process
+                stopListening()
               } else {
                 startListening()
               }
@@ -361,7 +364,7 @@ const ArtisanVoiceAssistant = ({ onRegistered, onSwitchToForm }) => {
         <p className="text-xs font-semibold text-text-secondary">
           {robotState === 'listening'
             ? language === 'pa'
-              ? 'ਹੁਣ ਬੋਲੋ ਜੀ... ਮੈਂ ਸੁਣ ਰਿਹਾ ਹਾਂ'
+              ? "ਹੁਣ ਬੋਲੋ ਜੀ... ਰੁਕਣ 'ਤੇ ਆਵਾਜ਼ ਆਪਣੇ ਆਪ ਭੇਜੀ ਜਾਵੇਗੀ"
               : language === 'hi'
                 ? 'अब बोलिए... मैं सुन रहा हूँ'
                 : 'Listening... please speak now'

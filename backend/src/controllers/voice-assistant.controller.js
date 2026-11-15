@@ -49,6 +49,7 @@ export const handleVoiceAssistantMessage = async (req, res) => {
       conversationHistory = [],
       pendingAction = null,
       language: reqLanguage = "pa",
+      preserveLanguage = false,
     } = req.body || {};
 
     const activeUser = req.user || null;
@@ -67,7 +68,10 @@ export const handleVoiceAssistantMessage = async (req, res) => {
     const hasPunjabiScript = /[\u0A00-\u0A7F]/.test(trimmedMsg);
     const hasHindiScript = /[\u0900-\u097F]/.test(trimmedMsg);
     const detectedLang = detectSpokenLanguage(trimmedMsg);
-    const lang = hasPunjabiScript
+    const lang =
+      preserveLanguage && ["pa", "hi", "en"].includes(reqLanguage)
+        ? reqLanguage
+        : hasPunjabiScript
       ? "pa"
       : hasHindiScript
       ? "hi"
